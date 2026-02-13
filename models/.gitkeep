@@ -1,0 +1,3 @@
+# Place ONNX model files here:
+# - scrfd_10g_bnkps.onnx (face detection)
+# - arcface_r100.onnx (face recognition)

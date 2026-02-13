@@ -1,0 +1,41 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+venv/
+env/
+.venv/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Environment variables
+.env
+.env.local
+
+# Data files
+data/db/*.db
+data/snapshots/*
+data/clips/*
+data/enrolled/*.npy
+!data/db/.gitkeep
+!data/snapshots/.gitkeep
+!data/clips/.gitkeep
+!data/enrolled/.gitkeep
+
+# Model files
+models/*.onnx
+
+# Test artifacts
+.pytest_cache/
+htmlcov/
+.coverage
+
+# OS files
+.DS_Store
+Thumbs.db
