@@ -5,11 +5,15 @@ and every consumer (main loop, event manager, dashboard, tests …).
 External code calls ``pipeline.process_frame(frame)`` and receives a
 :class:`FrameResult`.  Swapping model backends (SCRFD → YOLO, ArcFace →
 AdaFace, etc.) only requires changes inside ``app/ml/`` — nothing else.
+
+Iteration 2: the enrolled gallery is loaded via an injectable *provider*
+callable instead of a hardcoded ``.npy`` file.  This keeps SQL out of
+``app/ml/``.
 """
 
 from __future__ import annotations
 
-from typing import List, Optional
+from typing import Callable, List, Optional
 
 import numpy as np
 
@@ -21,9 +25,12 @@ from app.core.models import (
     RecognitionResult,
 )
 from app.ml.detector_scrfd import ModelNotFoundError, SCRFDDetector, select_largest_face
-from app.ml.recogniser_arcface import ArcFaceRecogniser, load_enrolled_embedding
+from app.ml.recogniser_arcface import ArcFaceRecogniser
 from app.ml.preprocess import safe_crop_face
 from app.services.logging_service import get_logger
+
+# Type alias for the provider — any zero-arg callable returning persons.
+EnrolledProvider = Callable[[], List[EnrolledPerson]]
 
 
 class FacePipeline:
@@ -32,15 +39,27 @@ class FacePipeline:
 
     Construction tries to load both ONNX models.  If either model file is
     missing the pipeline degrades gracefully and ``ml_enabled`` is ``False``.
+
+    Parameters
+    ----------
+    enrolled_provider : EnrolledProvider, optional
+        A zero-arg callable that returns the current list of enrolled
+        persons.  Called **once** during ``__init__`` and can be refreshed
+        later via :meth:`reload_enrolled`.  When ``None`` the pipeline
+        runs without recognition (all faces labelled *Unknown*).
     """
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        enrolled_provider: Optional[EnrolledProvider] = None,
+    ) -> None:
         self._log = get_logger()
 
         # Attempt to load detector ------------------------------------------
         self._detector: Optional[SCRFDDetector] = None
         self._recogniser: Optional[ArcFaceRecogniser] = None
         self._enrolled: List[EnrolledPerson] = []
+        self._enrolled_provider = enrolled_provider
         self.ml_enabled: bool = False
 
         if not config.ML_ENABLED_AUTO:
@@ -60,25 +79,41 @@ class FacePipeline:
         self.ml_enabled = self._detector is not None
 
         if self.ml_enabled:
-            self._log.info("ML pipeline initialised (detection=%s  recognition=%s)",
-                           self._detector is not None,
-                           self._recogniser is not None)
+            self._log.info(
+                "ML pipeline initialised (detection=%s  recognition=%s)",
+                self._detector is not None,
+                self._recogniser is not None,
+            )
         else:
             self._log.warning("ML DISABLED — model files missing")
 
-        # Load enrolled gallery (Iteration 1: from .npy file) ---------------
+        # Load enrolled gallery via provider (Iteration 2+) -----------------
         if self._recogniser is not None:
-            person = load_enrolled_embedding(
-                config.ENROLLED_EMBEDDING_PATH,
-                config.ENROLLED_NAME,
+            self.reload_enrolled()
+
+    # ------------------------------------------------------------------
+    # Enrolled gallery management
+    # ------------------------------------------------------------------
+
+    def reload_enrolled(self) -> None:
+        """
+        Refresh the enrolled gallery from the provider.
+
+        Safe to call at any time — e.g. after a new enrolment.
+        """
+        if self._enrolled_provider is None:
+            self._enrolled = []
+            self._log.info("No enrolled provider — all faces will be Unknown")
+            return
+
+        try:
+            self._enrolled = self._enrolled_provider()
+            self._log.info(
+                "Enrolled gallery: %d person(s)", len(self._enrolled)
             )
-            if person is not None:
-                self._enrolled.append(person)
-                self._log.info(
-                    "Enrolled gallery: %d person(s)", len(self._enrolled)
-                )
-            else:
-                self._log.info("No enrolled identities — all faces will be Unknown")
+        except Exception as exc:  # noqa: BLE001
+            self._log.error("Failed to load enrolled gallery: %s", exc)
+            self._enrolled = []
 
     # ------------------------------------------------------------------
     # Public stable interface

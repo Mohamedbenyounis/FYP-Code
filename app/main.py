@@ -1,9 +1,9 @@
 """
-SecureVision — main entry point (Iteration 1).
+SecureVision — main entry point (Iteration 2).
 
-Captures webcam frames, runs the ML pipeline every N-th frame, and prints
-structured results to the console.  The ML pipeline is a pluggable adapter:
-``main.py`` never touches detector / recogniser directly.
+Captures webcam frames, runs the ML pipeline every N-th frame, and displays
+the results in a live window.  The ML pipeline is a pluggable adapter:
+``main.py`` never touches detector / recogniser / SQL directly.
 """
 
 from __future__ import annotations
@@ -15,6 +15,8 @@ import cv2
 
 from app import config
 from app.camera.webcam import WebcamCamera
+from app.db.migrations import init_db
+from app.db.repo import SQLitePersonRepository, make_enrolled_provider
 from app.ml.pipeline import FacePipeline
 from app.services.logging_service import FrameRateLogger, get_logger
 
@@ -36,7 +38,7 @@ def main() -> int:
     """Application entry point.  Returns 0 on success, 1 on error."""
     log = get_logger()
     log.info("=" * 60)
-    log.info("SecureVision starting — Iteration 1")
+    log.info("SecureVision starting — Iteration 2")
     log.info("=" * 60)
 
     # Ensure folders ---------------------------------------------------
@@ -44,14 +46,21 @@ def main() -> int:
     log.info("Data dir : %s", config.DATA_DIR)
     log.info("Models dir: %s", config.MODELS_DIR)
 
+    # Database ---------------------------------------------------------
+    conn = init_db(config.DB_PATH)
+    repo = SQLitePersonRepository(conn)
+    enrolled_provider = make_enrolled_provider(repo)
+    log.info("DB path  : %s", config.DB_PATH)
+
     # Camera -----------------------------------------------------------
     camera = WebcamCamera(device_index=config.CAMERA_INDEX)
     if not camera.is_opened():
         log.error("Camera failed to open — exiting")
+        conn.close()
         return 1
 
     # ML pipeline (pluggable adapter) ----------------------------------
-    pipeline = FacePipeline()
+    pipeline = FacePipeline(enrolled_provider=enrolled_provider)
 
     if not pipeline.ml_enabled:
         log.warning("=" * 60)
@@ -147,6 +156,7 @@ def main() -> int:
         log.info("Keyboard interrupt — shutting down")
     finally:
         camera.release()
+        conn.close()
         cv2.destroyAllWindows()
         log.info("SecureVision stopped")
 

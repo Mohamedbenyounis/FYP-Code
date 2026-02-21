@@ -51,28 +51,22 @@ FYP-Code/
 If models are **not** present the application runs in ML-disabled mode —
 it still captures frames and logs that ML is disabled.
 
-## 4. (Optional) Create an Enrolled Embedding
+## 4. Enroll Identities
 
-For Iteration 1 you can enroll **one** identity by saving a 512-d numpy
-embedding to `data/enrolled/known.npy`:
-
-```python
-import numpy as np
-# Assume `embedding` is a 512-d float32 vector from ArcFace
-np.save("data/enrolled/known.npy", embedding)
-```
-
-Set the person's name:
+Use the CLI enrollment tool to register faces into the database.  Each photo
+must contain **exactly one face** — the tool rejects 0 or multiple.
 
 ```bash
-# Windows
-set SV_ENROLLED_NAME=Mohamed
-
-# Linux/macOS
-export SV_ENROLLED_NAME=Mohamed
+python -m app.enroll --name "Alice" --image ./photos/alice.jpg
+python -m app.enroll --name "Bob"   --image ./photos/bob.png
 ```
 
-If the file is missing, all detected faces will be labelled "Unknown".
+Re-running with the same `--name` updates the existing embedding (no duplicates).
+
+The database is stored at `data/db/securevision.sqlite` by default (override
+with `SV_DB_PATH`).  Enrolled identities **persist across restarts**.
+
+If no identities are enrolled, all detected faces are labelled "Unknown".
 
 ## 5. Run
 
@@ -96,9 +90,8 @@ All settings live in `app/config.py` and can be overridden via env vars:
 |----------|---------|-------------|
 | `SV_DATA_DIR` | `./data` | Root data directory |
 | `SV_MODELS_DIR` | `./models` | ONNX model directory |
-| `SV_ENROLLED_DIR` | `./data/enrolled` | Enrolled embeddings dir |
-| `SV_ENROLLED_EMBEDDING` | `data/enrolled/known.npy` | Enrolled .npy path |
-| `SV_ENROLLED_NAME` | `KnownPerson` | Name for enrolled identity |
+| `SV_DB_PATH` | `data/db/securevision.sqlite` | SQLite database path |
+| `SV_ENROLLED_DIR` | `./data/enrolled` | Enrolled embeddings dir (legacy) |
 | `SV_CAMERA_INDEX` | `0` | Webcam device index |
 | `SV_ML_ENABLED_AUTO` | `true` | Auto-load models if present |
 | `SV_DETECTION_CONF_THRESH` | `0.5` | Min detection confidence |

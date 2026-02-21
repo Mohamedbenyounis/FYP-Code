@@ -1,6 +1,56 @@
 # SecureVision Build Log
 
-## 2026-02-13 — Iteration 1: Core ML Pipeline (Complete)
+## 2026-02 — Iteration 2: SQLite Persistence + Enrollment (Complete)
+
+### What Changed
+- **db/schema.sql** — Redesigned `persons` table: added `embedding_dim`,
+  `dtype`, ISO 8601 `created_at`, dropped `updated_at`.
+- **db/migrations.py** — `init_db()` creates parent dirs, applies schema,
+  sets `PRAGMA journal_mode=WAL` and `foreign_keys=ON`.
+- **db/repo.py** — `InMemoryPersonRepository` upgraded with full CRUD.
+  `SQLitePersonRepository` fully implemented: `get_all`, `get_by_id`,
+  `get_by_name`, `add_person`, `update_embedding`, `delete_person`.
+  `make_enrolled_provider()` factory for pipeline injection.
+- **config.py** — Added `DB_PATH` setting (`data/db/securevision.sqlite`).
+- **ml/pipeline.py** — Replaced hardcoded `.npy` loader with injectable
+  `enrolled_provider` callable.  New `reload_enrolled()` method for live
+  gallery refresh.  **No SQL in ml/.**
+- **enroll.py** — **NEW** CLI enrollment tool with argparse.  Loads image,
+  detects single face (rejects 0 or >1), embeds via ArcFace, stores in DB.
+  Supports re-enrollment (updates embedding for existing name).
+- **main.py** — Wired up DB init → repo → enrolled_provider → pipeline.
+  DB connection closed in finally block.  **No SQL in main.py.**
+- **tests/test_db_repo.py** — **NEW** 25+ tests: init_db pragmas, CRUD for
+  both InMemory and SQLite repos, embedding round-trip, provider factory.
+
+### Architecture Rule Enforced
+```
+SQL lives ONLY in:  db/repo.py  +  db/migrations.py
+Pipeline gets data via:  enrolled_provider() callable
+main.py orchestrates via:  init_db → repo → make_enrolled_provider → FacePipeline
+```
+
+### Files Touched
+```
+app/db/schema.sql          (MODIFIED)
+app/db/migrations.py       (MODIFIED)
+app/db/repo.py             (MODIFIED)
+app/config.py              (MODIFIED)
+app/ml/pipeline.py         (MODIFIED)
+app/main.py                (MODIFIED)
+app/enroll.py              (NEW)
+tests/test_db_repo.py      (NEW)
+docs/BUILD_LOG.md          (MODIFIED)
+docs/ARCHITECTURE.md       (MODIFIED)
+docs/SETUP.md              (MODIFIED)
+```
+
+### Next Steps
+- **Iteration 3**: Event logging — persist recognition events to `events` table
+
+---
+
+## 2026-02 — Iteration 1: Core ML Pipeline (Complete)
 
 ### What Changed
 - **config.py** — Added `ENROLLED_DIR`, `CAMERA_INDEX`, helper functions
@@ -49,7 +99,7 @@ docs/BUILD_LOG.md
 
 ---
 
-## 2026-01-25 — Boilerplate Setup
+## 2026-01 — Boilerplate Setup
 
 ### What Changed
 - Created complete project directory structure with all stub files.

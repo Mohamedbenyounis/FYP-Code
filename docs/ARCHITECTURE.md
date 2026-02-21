@@ -17,19 +17,21 @@ refactoring existing layers.
    returns `FrameResult(ml_enabled=False)` with a human-readable message.
 3. **Configuration-Driven** — Every constant lives in `app/config.py` with
    environment-variable overrides (`SV_*`).
-4. **Repository Pattern** — All future DB access will be isolated in
-   `app/db/repo.py`, making it easy to test and swap storage backends.
+4. **Repository Pattern** — All DB access is isolated in `app/db/repo.py`.
+   No SQL appears in `main.py` or `app/ml/`.  The pipeline receives an
+   `enrolled_provider` callable — it never knows about SQLite.
 5. **Clean Interfaces / Stubs** — Every future module (tracking, recording,
-   web, alerts) has an ABC or stub today so Iteration 2+ can land without
+   web, alerts) has an ABC or stub today so Iteration 3+ can land without
    restructuring imports or contracts.
 
-## Iteration 1 Data Flow
+## Iteration 2 Data Flow
 
 ```
   ┌──────────┐
-  │  Webcam   │  camera/webcam.py  (CameraSource ABC)
+  │  SQLite   │  db/migrations.py → init_db()
+  │  DB       │  db/repo.py       → SQLitePersonRepository
   └────┬─────┘
-       │ frame (BGR numpy)
+       │ enrolled_provider()  (zero-arg callable)
        ▼
   ┌──────────────┐
   │ FacePipeline  │  ml/pipeline.py  ← STABLE PUBLIC API
@@ -45,9 +47,39 @@ refactoring existing layers.
   └──────┬───────┘
          │ FrameResult
          ▼
-  ┌──────────┐
-  │ main.py   │  prints structured console output
-  └──────────┘
+  ┌──────────┐          ┌──────────────┐
+  │ main.py   │          │ enroll.py     │  CLI enrollment
+  │ (camera   │          │ (image →      │
+  │  display) │          │  DB entry)    │
+  └──────────┘          └──────────────┘
+```
+
+### Enrollment Flow
+
+```
+  photo.jpg
+       │
+       ▼
+  SCRFDDetector.detect()     → must find exactly 1 face
+       │
+       ▼
+  ArcFaceRecogniser.embed()  → 512-d unit vector
+       │
+       ▼
+  SQLitePersonRepository.add_person(name, embedding)
+       │
+       ▼
+  Stored as BLOB (np.float32.tobytes) + metadata
+```
+
+### Dependency Injection (no SQL in ml/)
+
+```
+  main.py
+    ├── init_db(config.DB_PATH)              → sqlite3.Connection
+    ├── SQLitePersonRepository(conn)         → repo
+    ├── make_enrolled_provider(repo)         → Callable[[], List[EnrolledPerson]]
+    └── FacePipeline(enrolled_provider=...)  → pipeline uses the callable
 ```
 
 ## FrameResult Contract
@@ -66,7 +98,7 @@ class FrameResult:
 
 | Iteration | What Changes | What Stays the Same |
 |-----------|-------------|---------------------|
-| 2 – SQLite | `db/repo.py` implementation | pipeline, main, camera |
+| 2 – SQLite | `db/repo.py`, `db/migrations.py`, `enroll.py` | pipeline API, camera |
 | 3 – Events | new `services/event_manager.py` consumes `FrameResult` | pipeline, main |
 | 4 – Snapshots | `recording/snapshot_recorder.py` | pipeline, camera |
 | 5 – Dashboard | `web/` reads DB via `repo.py` | pipeline (separate process) |
@@ -80,6 +112,7 @@ class FrameResult:
 app/
 ├── config.py               # All configuration + env overrides
 ├── main.py                 # Entry point (uses FacePipeline only)
+├── enroll.py               # CLI enrollment  (Iteration 2)
 ├── core/models.py          # Shared dataclasses
 ├── camera/
 │   ├── base.py             # CameraSource ABC
@@ -90,7 +123,10 @@ app/
 │   ├── detector_scrfd.py   # SCRFD ONNX (internal)
 │   ├── recogniser_arcface.py # ArcFace ONNX (internal)
 │   └── preprocess.py       # Crop / resize / normalise (internal)
-├── db/                     # Stub — Iteration 2
+├── db/
+│   ├── schema.sql          # DDL for persons + events
+│   ├── migrations.py       # init_db(), WAL + FK pragmas
+│   └── repo.py             # SQLitePersonRepository + provider factory
 ├── tracking/               # Stub — Iteration 6
 ├── recording/              # Stub — Iteration 4
 ├── services/

@@ -56,6 +56,12 @@ ENROLLED_DIR: Path = Path(_env("SV_ENROLLED_DIR", str(DATA_DIR / "enrolled")))
 MODELS_DIR: Path = Path(_env("SV_MODELS_DIR", str(BASE_DIR / "models")))
 
 # =============================================================================
+# DATABASE  (Iteration 2+)
+# =============================================================================
+
+DB_PATH: Path = Path(_env("SV_DB_PATH", str(DB_DIR / "securevision.sqlite")))
+
+# =============================================================================
 # MODEL FILE PATHS
 # =============================================================================
 
