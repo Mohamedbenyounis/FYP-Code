@@ -80,6 +80,13 @@ class SQLitePersonRepository:
 
     The ``conn`` must already be initialised via :func:`db.migrations.init_db`
     so that tables exist and pragmas are set.
+
+    **Threading / lifecycle note:**  ``sqlite3.Connection`` objects are
+    **not** thread-safe by default.  The current MVP uses a single
+    connection owned by ``main.py`` and shared with this repository.
+    When the Flask dashboard (Iteration 5) introduces a second thread,
+    each thread must own its own connection — or use
+    ``check_same_thread=False`` with external locking.
     """
 
     def __init__(self, conn: sqlite3.Connection) -> None:
@@ -172,17 +179,37 @@ class SQLitePersonRepository:
 
     # ------------------------------------------------------------------ helpers
 
+    # Allowed dtypes for embedding storage — extend if needed.
+    _ALLOWED_DTYPES = frozenset({"float32", "float64"})
+
     @staticmethod
     def _row_to_person(row: tuple) -> Optional[EnrolledPerson]:
         """Convert a raw DB row → EnrolledPerson, restoring the numpy array."""
+        log = get_logger()
         pid, name, blob, dim, dtype_str = row
+
+        if dim is None or dim <= 0:
+            log.warning("Skipping person id=%s: invalid dim=%s", pid, dim)
+            return None
+
+        if dtype_str not in SQLitePersonRepository._ALLOWED_DTYPES:
+            log.warning(
+                "Skipping person id=%s: unsupported dtype '%s'", pid, dtype_str
+            )
+            return None
+
         try:
             dt = np.dtype(dtype_str)
             emb = np.frombuffer(blob, dtype=dt)
             if emb.shape[0] != dim:
+                log.warning(
+                    "Skipping person id=%s: shape mismatch %s vs dim=%d",
+                    pid, emb.shape, dim,
+                )
                 return None
             return EnrolledPerson(person_id=pid, name=name, embedding=emb)
         except Exception:  # noqa: BLE001
+            log.warning("Skipping person id=%s: failed to decode embedding", pid)
             return None
 
 

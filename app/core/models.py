@@ -89,6 +89,8 @@ class FrameResult:
     primary_detection: Optional[Detection] = None
     recognition: Optional[RecognitionResult] = None
     ml_enabled: bool = False
+    detection_enabled: bool = False
+    recognition_enabled: bool = False
     message: str = ""
 
 
@@ -100,8 +102,7 @@ class FrameResult:
 class EnrolledPerson:
     """
     A person enrolled in the system.
-    Iteration 1: loaded from .npy file.
-    Iteration 2+: loaded from database.
+    Loaded from the SQLite database via ``db/repo.py``.
     """
 
     person_id: int

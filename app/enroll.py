@@ -17,7 +17,6 @@ No webcam or live feed is involved.
 from __future__ import annotations
 
 import argparse
-import sqlite3
 import sys
 from pathlib import Path
 
@@ -27,7 +26,7 @@ import numpy as np
 from app import config
 from app.db.migrations import init_db
 from app.db.repo import SQLitePersonRepository
-from app.ml.detector_scrfd import ModelNotFoundError, SCRFDDetector, select_largest_face
+from app.ml.detector_scrfd import ModelNotFoundError, SCRFDDetector
 from app.ml.recogniser_arcface import ArcFaceRecogniser
 from app.ml.preprocess import safe_crop_face
 from app.services.logging_service import get_logger
@@ -115,22 +114,27 @@ def enroll(name: str, image_path: str) -> int:
 
     # 5. Store in database -------------------------------------------------
     conn = init_db(config.DB_PATH)
-    repo = SQLitePersonRepository(conn)
+    try:
+        repo = SQLitePersonRepository(conn)
 
-    existing = repo.get_by_name(name)
-    if existing is not None:
-        log.warning(
-            "Person '%s' already exists (id=%d). Updating embedding.",
-            name,
-            existing.person_id,
-        )
-        repo.update_embedding(existing.person_id, embedding)
-        log.info("Updated embedding for '%s'", name)
-    else:
-        person = repo.add_person(name, embedding)
-        log.info("Enrolled '%s' as person id=%d", person.name, person.person_id)
-
-    conn.close()
+        existing = repo.get_by_name(name)
+        if existing is not None:
+            log.warning(
+                "Person '%s' already exists (id=%d). Updating embedding.",
+                name,
+                existing.person_id,
+            )
+            repo.update_embedding(existing.person_id, embedding)
+            log.info("Updated embedding for '%s'", name)
+        else:
+            person = repo.add_person(name, embedding)
+            log.info(
+                "Enrolled '%s' as person id=%d",
+                person.name,
+                person.person_id,
+            )
+    finally:
+        conn.close()
 
     log.info("Enrollment complete ✓")
     return 0

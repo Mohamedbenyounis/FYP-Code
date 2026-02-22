@@ -1,5 +1,61 @@
 # SecureVision Build Log
 
+## 2026-03 — Iteration 2: Refinement Pass (Complete)
+
+### Purpose
+Remove .npy legacy, add headless preview support, improve ML status
+reporting, harden enrollment script, and sync documentation.
+No new features.  No behaviour changes to the webcam pipeline or DB layer.
+
+### What Changed
+- **config.py** — Removed `ENROLLED_DIR`, `ENROLLED_EMBEDDING_PATH`,
+  `ENROLLED_NAME`.  Added `SHOW_PREVIEW` and `PREVIEW_WINDOW_NAME`.
+- **core/models.py** — Added `detection_enabled` and `recognition_enabled`
+  fields to `FrameResult` (backward-compatible defaults).
+- **ml/pipeline.py** — Exposed `detection_enabled` / `recognition_enabled`
+  properties.  All `FrameResult` returns now populate the new fields.
+  Updated `__init__` logging to reflect per-model status.
+- **ml/recogniser_arcface.py** — Removed legacy `load_enrolled_embedding()`.
+- **main.py** — Guarded cv2 preview behind `SHOW_PREVIEW`.  Removed unused
+  `time` import and stale `config.ENROLLED_DIR` reference.
+- **enroll.py** — Removed unused `sqlite3` and `select_largest_face` imports.
+  Wrapped DB connection in `try/finally` for guaranteed close.
+- **tests/test_ml_stub.py** — Removed `TestLoadEnrolledEmbedding` (3 tests).
+  Added assertions for `detection_enabled` / `recognition_enabled`.
+  Removed unused `EnrolledPerson` import.  Test count: 34 → 31.
+- **db/repo.py** — Hardened `_row_to_person()` with `dim > 0` guard, dtype
+  allowlist, and logging warnings.  Added threading/lifecycle docstring.
+- **docs/ARCHITECTURE.md** — Updated `FrameResult` contract with new fields.
+  Added "Headless Mode", "Early events Table", and "SQLite Threading Note".
+- **docs/SETUP.md** — Added `SV_SHOW_PREVIEW` / `SV_PREVIEW_WINDOW_NAME`
+  to config table.  Added headless mode and developer tools sections.
+- **.gitignore** — Removed `data/enrolled/*.npy` pattern.
+- **data/enrolled/.gitkeep** — Updated comment.
+- **requirements-dev.txt** — **NEW** optional dev dependency (ruff).
+
+### Files Touched
+```
+app/config.py                  (MODIFIED)
+app/core/models.py             (MODIFIED)
+app/ml/pipeline.py             (MODIFIED)
+app/ml/recogniser_arcface.py   (MODIFIED)
+app/main.py                    (MODIFIED)
+app/enroll.py                  (MODIFIED)
+app/db/repo.py                 (MODIFIED)
+tests/test_ml_stub.py          (MODIFIED)
+docs/ARCHITECTURE.md           (MODIFIED)
+docs/SETUP.md                  (MODIFIED)
+docs/BUILD_LOG.md              (MODIFIED)
+.gitignore                     (MODIFIED)
+data/enrolled/.gitkeep         (MODIFIED)
+requirements-dev.txt           (NEW)
+```
+
+### Next Steps
+- **Iteration 3**: Event logging — persist recognition events to `events` table
+
+---
+
 ## 2026-02 — Iteration 2: SQLite Persistence + Enrollment (Complete)
 
 ### What Changed

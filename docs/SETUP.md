@@ -91,13 +91,14 @@ All settings live in `app/config.py` and can be overridden via env vars:
 | `SV_DATA_DIR` | `./data` | Root data directory |
 | `SV_MODELS_DIR` | `./models` | ONNX model directory |
 | `SV_DB_PATH` | `data/db/securevision.sqlite` | SQLite database path |
-| `SV_ENROLLED_DIR` | `./data/enrolled` | Enrolled embeddings dir (legacy) |
 | `SV_CAMERA_INDEX` | `0` | Webcam device index |
 | `SV_ML_ENABLED_AUTO` | `true` | Auto-load models if present |
 | `SV_DETECTION_CONF_THRESH` | `0.5` | Min detection confidence |
 | `SV_RECOGNITION_SIM_THRESH` | `0.4` | Min cosine similarity for match |
 | `SV_PROCESS_EVERY_N_FRAMES` | `3` | Run ML every N-th frame |
 | `SV_LOG_LEVEL` | `INFO` | Logging level |
+| `SV_SHOW_PREVIEW` | `true` | Show live camera window |
+| `SV_PREVIEW_WINDOW_NAME` | `SecureVision` | Preview window title |
 
 ## Troubleshooting
 
@@ -111,3 +112,27 @@ All settings live in `app/config.py` and can be overridden via env vars:
 
 **Low FPS**
 - Increase `SV_PROCESS_EVERY_N_FRAMES` (e.g. 5).
+
+## Headless Mode
+
+To run without a GUI window (e.g. background service, CI, SSH session):
+
+```bash
+set SV_SHOW_PREVIEW=false
+python -m app.main
+```
+
+The camera and ML pipeline operate normally; results are logged to the
+console only.
+
+## Developer Tools (Optional)
+
+```bash
+pip install -r requirements-dev.txt
+
+# Check for lint issues
+ruff check app/ tests/
+
+# Auto-format code
+ruff format app/ tests/
+```

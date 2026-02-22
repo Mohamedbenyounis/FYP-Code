@@ -90,9 +90,19 @@ class FrameResult:
     detections: list[Detection]          # all detected faces
     primary_detection: Detection | None  # largest bbox (MVP rule)
     recognition: RecognitionResult | None
-    ml_enabled: bool
+    ml_enabled: bool                     # any ML capability active
+    detection_enabled: bool              # SCRFD detector loaded
+    recognition_enabled: bool            # ArcFace recogniser loaded
     message: str                         # human-readable summary
 ```
+
+## Headless Mode
+
+Set `SV_SHOW_PREVIEW=false` to run without a GUI window (useful for
+background services, CI, or SSH sessions).  In headless mode the camera
+still captures frames and the ML pipeline still processes them — all
+detection and recognition results are logged to the console.  No
+`cv2.imshow` / `cv2.waitKey` calls are made.
 
 ## Why This Avoids Future Refactors
 
@@ -105,6 +115,32 @@ class FrameResult:
 | 6 – Tracking | `tracking/` wraps pipeline | pipeline API unchanged |
 | 7 – RTSP | `camera/rtsp.py` implements same ABC | pipeline, main |
 | 8 – Alerts | `services/alert_service.py` subscribes to events | everything else |
+
+## Early `events` Table
+
+The `events` table is created alongside `persons` in Iteration 2 even though
+no code populates it until Iteration 3.  This is intentional:
+
+* **Schema idempotency** — `CREATE TABLE IF NOT EXISTS` runs on every startup.
+  Adding the table now means Iteration 3 only needs to write to it, not
+  migrate the schema.
+* **Foreign-key consistency** — `events.person_id` references `persons(id)`.
+  Defining both tables in the same DDL file avoids ordering issues when
+  `PRAGMA foreign_keys=ON` is active.
+* **Zero runtime cost** — an empty table with no writes adds no measurable
+  overhead.
+
+## SQLite Threading Note
+
+The current MVP uses a **single** `sqlite3.Connection` created by `main.py`
+and passed to `SQLitePersonRepository`.  This is safe because only one thread
+reads/writes the database.
+
+When the Flask dashboard is introduced (Iteration 5), each thread will need
+its **own** connection (or `check_same_thread=False` with external locking).
+WAL mode already permits concurrent readers alongside a single writer, so the
+main camera thread and the dashboard read-thread can coexist once each owns
+a separate connection.
 
 ## Module Map
 

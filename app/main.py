@@ -9,7 +9,6 @@ the results in a live window.  The ML pipeline is a pluggable adapter:
 from __future__ import annotations
 
 import sys
-import time
 
 import cv2
 
@@ -28,7 +27,6 @@ def _ensure_directories() -> None:
         config.DB_DIR,
         config.SNAPSHOTS_DIR,
         config.CLIPS_DIR,
-        config.ENROLLED_DIR,
         config.MODELS_DIR,
     ):
         d.mkdir(parents=True, exist_ok=True)
@@ -85,13 +83,12 @@ def main() -> int:
                 continue
 
             frame_counter += 1
-            display_frame = frame.copy()
 
-            # Only run ML on every N-th frame
+            # --- ML processing (every N-th frame) -------------------------
             if frame_counter % config.PROCESS_EVERY_N_FRAMES == 0:
                 result = pipeline.process_frame(frame)
 
-                # Structured console output
+                # Structured console output (always active)
                 if result.primary_detection is not None:
                     det = result.primary_detection
                     log.info(
@@ -101,27 +98,15 @@ def main() -> int:
                         det.bbox.width,
                         det.bbox.height,
                     )
-                    # Draw bbox on display frame
-                    b = det.bbox
-                    cv2.rectangle(display_frame, (b.x1, b.y1), (b.x2, b.y2), (0, 255, 0), 2)
-
-                    label = f"conf={det.confidence:.2f}"
-                    if result.recognition is not None:
-                        rec = result.recognition
-                        if rec.is_match:
-                            label = f"{rec.name} ({rec.score:.2f})"
-                        else:
-                            label = f"Unknown ({rec.score:.2f})"
-                    cv2.putText(
-                        display_frame, label,
-                        (b.x1, b.y1 - 10),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2,
-                    )
 
                 if result.recognition is not None:
                     rec = result.recognition
                     if rec.is_match:
-                        log.info("Recognised: %s  score=%.3f", rec.name, rec.score)
+                        log.info(
+                            "Recognised: %s  score=%.3f",
+                            rec.name,
+                            rec.score,
+                        )
                     else:
                         log.info("Unknown face  score=%.3f", rec.score)
 
@@ -136,28 +121,72 @@ def main() -> int:
                     ),
                 )
 
-            # Draw status bar at top of frame
-            status = "ML: ON" if pipeline.ml_enabled else "ML: DISABLED"
-            cv2.putText(
-                display_frame, status,
-                (10, 25), cv2.FONT_HERSHEY_SIMPLEX, 0.7,
-                (0, 255, 0) if pipeline.ml_enabled else (0, 0, 255), 2,
-            )
+            # --- Preview window (guarded by SHOW_PREVIEW) -----------------
+            if config.SHOW_PREVIEW:
+                display_frame = frame.copy()
 
-            # Show the live camera feed
-            cv2.imshow("SecureVision", display_frame)
+                # Overlay detection bbox on ML-processed frames
+                if (
+                    frame_counter % config.PROCESS_EVERY_N_FRAMES == 0
+                    and result.primary_detection is not None
+                ):
+                    b = result.primary_detection.bbox
+                    cv2.rectangle(
+                        display_frame,
+                        (b.x1, b.y1),
+                        (b.x2, b.y2),
+                        (0, 255, 0),
+                        2,
+                    )
 
-            # Press 'q' to quit (or Ctrl+C in terminal)
-            if cv2.waitKey(1) & 0xFF == ord("q"):
-                log.info("'q' pressed — shutting down")
-                break
+                    label = f"conf={result.primary_detection.confidence:.2f}"
+                    if result.recognition is not None:
+                        rec = result.recognition
+                        if rec.is_match:
+                            label = f"{rec.name} ({rec.score:.2f})"
+                        else:
+                            label = f"Unknown ({rec.score:.2f})"
+
+                    cv2.putText(
+                        display_frame,
+                        label,
+                        (b.x1, b.y1 - 10),
+                        cv2.FONT_HERSHEY_SIMPLEX,
+                        0.6,
+                        (0, 255, 0),
+                        2,
+                    )
+
+                # Status bar
+                status_text = (
+                    "ML: ON" if pipeline.ml_enabled else "ML: DISABLED"
+                )
+                status_colour = (
+                    (0, 255, 0) if pipeline.ml_enabled else (0, 0, 255)
+                )
+                cv2.putText(
+                    display_frame,
+                    status_text,
+                    (10, 25),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.7,
+                    status_colour,
+                    2,
+                )
+
+                cv2.imshow(config.PREVIEW_WINDOW_NAME, display_frame)
+
+                if cv2.waitKey(1) & 0xFF == ord("q"):
+                    log.info("'q' pressed — shutting down")
+                    break
 
     except KeyboardInterrupt:
         log.info("Keyboard interrupt — shutting down")
     finally:
         camera.release()
         conn.close()
-        cv2.destroyAllWindows()
+        if config.SHOW_PREVIEW:
+            cv2.destroyAllWindows()
         log.info("SecureVision stopped")
 
     return 0

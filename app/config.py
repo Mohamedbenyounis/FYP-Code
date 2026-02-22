@@ -52,7 +52,6 @@ DATA_DIR: Path = Path(_env("SV_DATA_DIR", str(BASE_DIR / "data")))
 DB_DIR: Path = DATA_DIR / "db"
 SNAPSHOTS_DIR: Path = DATA_DIR / "snapshots"
 CLIPS_DIR: Path = DATA_DIR / "clips"
-ENROLLED_DIR: Path = Path(_env("SV_ENROLLED_DIR", str(DATA_DIR / "enrolled")))
 MODELS_DIR: Path = Path(_env("SV_MODELS_DIR", str(BASE_DIR / "models")))
 
 # =============================================================================
@@ -73,15 +72,6 @@ ARCFACE_MODEL_PATH: Path = Path(
 )
 
 # =============================================================================
-# ENROLLED IDENTITY (Iteration 1 — .npy file; replaced by DB in Iter 2)
-# =============================================================================
-
-ENROLLED_EMBEDDING_PATH: Path = Path(
-    _env("SV_ENROLLED_EMBEDDING", str(ENROLLED_DIR / "known.npy"))
-)
-ENROLLED_NAME: str = _env("SV_ENROLLED_NAME", "KnownPerson")
-
-# =============================================================================
 # FEATURE FLAGS
 # =============================================================================
 
@@ -91,6 +81,13 @@ CAMERA_INDEX: int = _env_int("SV_CAMERA_INDEX", 0)
 # Alias kept for backward compat
 WEBCAM_INDEX: int = CAMERA_INDEX
 RTSP_URL: str = _env("SV_RTSP_URL", "")
+
+# =============================================================================
+# PREVIEW WINDOW
+# =============================================================================
+
+SHOW_PREVIEW: bool = _env_bool("SV_SHOW_PREVIEW", True)
+PREVIEW_WINDOW_NAME: str = _env("SV_PREVIEW_WINDOW_NAME", "SecureVision")
 
 # =============================================================================
 # ML THRESHOLDS

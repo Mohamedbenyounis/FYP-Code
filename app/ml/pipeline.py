@@ -6,9 +6,8 @@ External code calls ``pipeline.process_frame(frame)`` and receives a
 :class:`FrameResult`.  Swapping model backends (SCRFD → YOLO, ArcFace →
 AdaFace, etc.) only requires changes inside ``app/ml/`` — nothing else.
 
-Iteration 2: the enrolled gallery is loaded via an injectable *provider*
-callable instead of a hardcoded ``.npy`` file.  This keeps SQL out of
-``app/ml/``.
+The enrolled gallery is loaded via an injectable *provider* callable.
+This keeps SQL out of ``app/ml/``.
 """
 
 from __future__ import annotations
@@ -80,16 +79,34 @@ class FacePipeline:
 
         if self.ml_enabled:
             self._log.info(
-                "ML pipeline initialised (detection=%s  recognition=%s)",
-                self._detector is not None,
-                self._recogniser is not None,
+                "ML pipeline — detection_enabled=%s  recognition_enabled=%s",
+                self.detection_enabled,
+                self.recognition_enabled,
             )
         else:
-            self._log.warning("ML DISABLED — model files missing")
+            self._log.warning(
+                "ML DISABLED — detection_enabled=%s  recognition_enabled=%s",
+                self.detection_enabled,
+                self.recognition_enabled,
+            )
 
-        # Load enrolled gallery via provider (Iteration 2+) -----------------
+        # Load enrolled gallery via provider ---------------------------------
         if self._recogniser is not None:
             self.reload_enrolled()
+
+    # ------------------------------------------------------------------
+    # ML status properties
+    # ------------------------------------------------------------------
+
+    @property
+    def detection_enabled(self) -> bool:
+        """True when the SCRFD detector model is loaded."""
+        return self._detector is not None
+
+    @property
+    def recognition_enabled(self) -> bool:
+        """True when the ArcFace recogniser model is loaded."""
+        return self._recogniser is not None
 
     # ------------------------------------------------------------------
     # Enrolled gallery management
@@ -132,7 +149,12 @@ class FacePipeline:
         if not self.ml_enabled or self._detector is None:
             return FrameResult(
                 ml_enabled=False,
-                message="ML disabled — no model files loaded",
+                detection_enabled=self.detection_enabled,
+                recognition_enabled=self.recognition_enabled,
+                message=(
+                    f"ML disabled — detection={self.detection_enabled}"
+                    f"  recognition={self.recognition_enabled}"
+                ),
             )
 
         # 1. Detect --------------------------------------------------------
@@ -142,6 +164,8 @@ class FacePipeline:
             return FrameResult(
                 detections=[],
                 ml_enabled=True,
+                detection_enabled=self.detection_enabled,
+                recognition_enabled=self.recognition_enabled,
                 message="No faces detected",
             )
 
@@ -152,6 +176,8 @@ class FacePipeline:
             detections=detections,
             primary_detection=primary,
             ml_enabled=True,
+            detection_enabled=self.detection_enabled,
+            recognition_enabled=self.recognition_enabled,
         )
 
         if primary is None:

@@ -12,9 +12,9 @@ from unittest.mock import patch
 import numpy as np
 import pytest
 
-from app.core.models import BoundingBox, Detection, EnrolledPerson
+from app.core.models import BoundingBox, Detection
 from app.ml.detector_scrfd import ModelNotFoundError, SCRFDDetector, select_largest_face
-from app.ml.recogniser_arcface import ArcFaceRecogniser, load_enrolled_embedding
+from app.ml.recogniser_arcface import ArcFaceRecogniser
 
 
 # ===================================================================
@@ -47,8 +47,11 @@ class TestPipelineMLDisabled:
             patch("app.config.ARCFACE_MODEL_PATH", tmp_path / "no.onnx"),
         ):
             from app.ml.pipeline import FacePipeline
+
             pipe = FacePipeline()
             assert pipe.ml_enabled is False
+            assert pipe.detection_enabled is False
+            assert pipe.recognition_enabled is False
 
     def test_process_frame_returns_disabled_message(self, tmp_path: Path) -> None:
         """process_frame must return a FrameResult with an explanatory message."""
@@ -58,10 +61,13 @@ class TestPipelineMLDisabled:
             patch("app.config.ARCFACE_MODEL_PATH", tmp_path / "no.onnx"),
         ):
             from app.ml.pipeline import FacePipeline
+
             pipe = FacePipeline()
             result = pipe.process_frame(dummy_frame)
 
             assert result.ml_enabled is False
+            assert result.detection_enabled is False
+            assert result.recognition_enabled is False
             assert "disabled" in result.message.lower()
             assert result.detections == []
             assert result.primary_detection is None
@@ -99,28 +105,3 @@ class TestBoundingBox:
         assert b.center == (60, 70)
         assert b.as_tuple() == (10, 20, 110, 120)
 
-
-# ===================================================================
-# load_enrolled_embedding
-# ===================================================================
-
-class TestLoadEnrolledEmbedding:
-    def test_missing_file(self, tmp_path: Path) -> None:
-        assert load_enrolled_embedding(tmp_path / "nope.npy", "X") is None
-
-    def test_valid_embedding(self, tmp_path: Path) -> None:
-        emb = np.random.randn(512).astype(np.float32)
-        emb /= np.linalg.norm(emb)
-        p = tmp_path / "test.npy"
-        np.save(str(p), emb)
-
-        person = load_enrolled_embedding(p, "Alice")
-        assert person is not None
-        assert person.name == "Alice"
-        assert person.embedding.shape == (512,)
-        assert abs(np.linalg.norm(person.embedding) - 1.0) < 0.01
-
-    def test_wrong_shape(self, tmp_path: Path) -> None:
-        p = tmp_path / "bad.npy"
-        np.save(str(p), np.zeros(256))
-        assert load_enrolled_embedding(p, "Bad") is None
