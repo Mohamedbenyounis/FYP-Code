@@ -1,5 +1,5 @@
 """
-Repository pattern for person (enrolled-identity) persistence.
+Repository pattern for person, embedding, and event persistence.
 
 All SQL lives here — no other module imports ``sqlite3``.
 """
@@ -13,7 +13,8 @@ from typing import Callable, List, Optional
 
 import numpy as np
 
-from app.core.models import EnrolledPerson
+from app import config
+from app.core.models import EnrolledPerson, Event
 from app.services.logging_service import get_logger
 
 
@@ -214,6 +215,106 @@ class SQLitePersonRepository:
 
 
 # =====================================================================
+# SQLite embedding repository  (ML Integration — raw per-shot storage)
+# =====================================================================
+
+class SQLiteEmbeddingRepository:
+    """
+    Stores the raw per-shot embeddings for each enrolled person.
+
+    ``persons.embedding`` holds the **computed template** (mean of raw
+    embeddings, L2-normalised).  This table keeps every individual capture
+    so that the template can be recomputed when new shots are added.
+
+    The ``MAX_GALLERY_EMBEDDINGS`` cap is enforced on insert: when the
+    limit is reached the oldest row for that person is deleted before the
+    new one is written.
+    """
+
+    def __init__(self, conn: sqlite3.Connection) -> None:
+        self._conn = conn
+        self._log = get_logger()
+
+    # ------------------------------------------------------------------ read
+
+    def get_embeddings(self, person_id: int) -> List[np.ndarray]:
+        """Return all raw embeddings for *person_id*, oldest-first."""
+        cursor = self._conn.execute(
+            "SELECT embedding, embedding_dim, dtype "
+            "FROM person_embeddings WHERE person_id = ? "
+            "ORDER BY created_at ASC",
+            (person_id,),
+        )
+        results: List[np.ndarray] = []
+        for blob, dim, dtype_str in cursor.fetchall():
+            try:
+                emb = np.frombuffer(blob, dtype=np.dtype(dtype_str))
+                if emb.shape[0] == dim:
+                    results.append(emb.copy())
+            except Exception:  # noqa: BLE001
+                self._log.warning(
+                    "Skipping corrupt embedding for person_id=%d", person_id
+                )
+        return results
+
+    def count_embeddings(self, person_id: int) -> int:
+        """Return the number of raw embeddings stored for *person_id*."""
+        cursor = self._conn.execute(
+            "SELECT COUNT(*) FROM person_embeddings WHERE person_id = ?",
+            (person_id,),
+        )
+        return cursor.fetchone()[0]
+
+    # ------------------------------------------------------------------ write
+
+    def add_embedding(self, person_id: int, embedding: np.ndarray) -> None:
+        """
+        Insert a new raw embedding.
+
+        If the person already has ``MAX_GALLERY_EMBEDDINGS`` rows, the
+        oldest is deleted first so the cap is never exceeded.
+        """
+        max_emb = config.MAX_GALLERY_EMBEDDINGS
+        current = self.count_embeddings(person_id)
+
+        if current >= max_emb:
+            # Delete the oldest row(s) that exceed the limit
+            excess = current - max_emb + 1
+            self._conn.execute(
+                "DELETE FROM person_embeddings WHERE id IN ("
+                "  SELECT id FROM person_embeddings "
+                "  WHERE person_id = ? ORDER BY created_at ASC LIMIT ?"
+                ")",
+                (person_id, excess),
+            )
+
+        blob = embedding.astype(np.float32).tobytes()
+        dim = embedding.shape[0]
+        now_iso = datetime.now(timezone.utc).isoformat()
+
+        self._conn.execute(
+            "INSERT INTO person_embeddings "
+            "(person_id, embedding, embedding_dim, dtype, created_at) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (person_id, blob, dim, "float32", now_iso),
+        )
+        self._conn.commit()
+        self._log.info(
+            "Stored raw embedding for person_id=%d (dim=%d, count=%d/%d)",
+            person_id, dim, min(current + 1, max_emb), max_emb,
+        )
+
+    def delete_embeddings(self, person_id: int) -> int:
+        """Delete all raw embeddings for *person_id*.  Returns rows deleted."""
+        cursor = self._conn.execute(
+            "DELETE FROM person_embeddings WHERE person_id = ?",
+            (person_id,),
+        )
+        self._conn.commit()
+        return cursor.rowcount
+
+
+# =====================================================================
 # Provider factory — used by FacePipeline for dependency injection
 # =====================================================================
 
@@ -227,3 +328,96 @@ def make_enrolled_provider(
     def _provider() -> List[EnrolledPerson]:
         return repo.get_all()
     return _provider
+
+
+# =====================================================================
+# SQLite event repository  (Iteration 3)
+# =====================================================================
+
+class SQLiteEventRepository:
+    """
+    SQLite-backed event repository.
+
+    Persists ``Event`` objects emitted by the ``EventManager``.
+    Shares the same ``sqlite3.Connection`` as ``SQLitePersonRepository``
+    (single-thread MVP model — see architecture docs).
+    """
+
+    def __init__(self, conn: sqlite3.Connection) -> None:
+        self._conn = conn
+        self._log = get_logger()
+
+    def add_event(self, event: Event) -> None:
+        """Insert a confirmed presence event."""
+        self._conn.execute(
+            "INSERT INTO events "
+            "(id, status, person_name, person_id, score, bbox_json, "
+            " snapshot_path, clip_path, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                event.event_id,
+                event.status,
+                event.person_name,
+                event.person_id,
+                event.score,
+                event.bbox_json,
+                event.snapshot_path,
+                event.clip_path,
+                event.created_at,
+            ),
+        )
+        self._conn.commit()
+        self._log.info(
+            "Persisted event %s  status=%s  person=%s",
+            event.event_id,
+            event.status,
+            event.person_name or "unknown",
+        )
+
+    def list_events(
+        self,
+        limit: int = 50,
+        status: Optional[str] = None,
+    ) -> List[Event]:
+        """
+        Return the most recent events, newest first.
+
+        Parameters
+        ----------
+        limit : int
+            Maximum rows to return.
+        status : str | None
+            If supplied, filter to this status only (e.g. ``"authorised"``).
+        """
+        if status is not None:
+            cursor = self._conn.execute(
+                "SELECT id, status, person_name, person_id, score, "
+                "       bbox_json, snapshot_path, clip_path, created_at "
+                "FROM events WHERE status = ? "
+                "ORDER BY created_at DESC LIMIT ?",
+                (status, limit),
+            )
+        else:
+            cursor = self._conn.execute(
+                "SELECT id, status, person_name, person_id, score, "
+                "       bbox_json, snapshot_path, clip_path, created_at "
+                "FROM events ORDER BY created_at DESC LIMIT ?",
+                (limit,),
+            )
+
+        results: List[Event] = []
+        for row in cursor.fetchall():
+            results.append(
+                Event(
+                    event_id=row[0],
+                    created_at=row[8],
+                    status=row[1],
+                    person_name=row[2],
+                    person_id=row[3],
+                    score=row[4],
+                    bbox_json=row[5],
+                    snapshot_path=row[6],
+                    clip_path=row[7],
+                )
+            )
+        return results

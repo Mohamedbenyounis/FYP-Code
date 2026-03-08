@@ -99,6 +99,23 @@ All settings live in `app/config.py` and can be overridden via env vars:
 | `SV_LOG_LEVEL` | `INFO` | Logging level |
 | `SV_SHOW_PREVIEW` | `true` | Show live camera window |
 | `SV_PREVIEW_WINDOW_NAME` | `SecureVision` | Preview window title |
+| `SV_EVENT_CONFIRM_WINDOW_N` | `5` | Event manager rolling window size |
+| `SV_EVENT_CONFIRM_MIN_K` | `3` | Min faces in window to confirm |
+| `SV_EVENT_LOST_FRAMES` | `5` | Consecutive no-face frames to end event |
+| `SV_EVENT_COOLDOWN_SECONDS` | `10.0` | Cooldown seconds after event closes |
+| `SV_EVENT_SCORE_THRESHOLD` | `0.4` | Min score for "authorised" status |
+
+## Inspect Events  (Iteration 3)
+
+Events are stored in the `events` table.  Query them directly with SQLite:
+
+```bash
+sqlite3 data/db/securevision.sqlite \
+  "SELECT id, status, person_name, score, created_at FROM events ORDER BY created_at DESC LIMIT 10;"
+```
+
+Each row represents a confirmed face presence — the `EventManager` uses a
+K-of-N rolling window to avoid false triggers from single-frame noise.
 
 ## Troubleshooting
 

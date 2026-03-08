@@ -12,10 +12,12 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from app.core.models import EnrolledPerson
+from app.core.models import EnrolledPerson, Event
 from app.db.migrations import init_db
 from app.db.repo import (
     InMemoryPersonRepository,
+    SQLiteEmbeddingRepository,
+    SQLiteEventRepository,
     SQLitePersonRepository,
     make_enrolled_provider,
 )
@@ -246,4 +248,188 @@ class TestEnrolledProvider:
         conn, repo = _make_sqlite_repo(tmp_path)
         provider = make_enrolled_provider(repo)
         assert provider() == []
+        conn.close()
+
+
+# ===================================================================
+# Helpers  (events)
+# ===================================================================
+
+def _make_event(
+    event_id: str = "00000000-0000-0000-0000-000000000001",
+    status: str = "authorised",
+    person_name: str | None = "Alice",
+    person_id: int | None = None,
+    score: float | None = 0.85,
+    created_at: str = "2026-03-09T12:00:00+00:00",
+) -> Event:
+    return Event(
+        event_id=event_id,
+        created_at=created_at,
+        status=status,
+        person_name=person_name,
+        person_id=person_id,
+        score=score,
+        bbox_json='{"x1":10,"y1":20,"x2":110,"y2":120}',
+        snapshot_path=None,
+        clip_path=None,
+    )
+
+
+def _make_event_repo(tmp_path: Path) -> tuple[sqlite3.Connection, SQLiteEventRepository]:
+    db_path = tmp_path / "test.sqlite"
+    conn = init_db(db_path)
+    return conn, SQLiteEventRepository(conn)
+
+
+# ===================================================================
+# SQLiteEventRepository  (Iteration 3)
+# ===================================================================
+
+class TestSQLiteEventRepo:
+    def test_add_and_list(self, tmp_path: Path) -> None:
+        conn, repo = _make_event_repo(tmp_path)
+        ev = _make_event()
+        repo.add_event(ev)
+
+        events = repo.list_events()
+        assert len(events) == 1
+        assert events[0].event_id == ev.event_id
+        assert events[0].status == "authorised"
+        assert events[0].person_name == "Alice"
+        assert events[0].score == 0.85
+        assert events[0].bbox_json is not None
+        conn.close()
+
+    def test_list_respects_limit(self, tmp_path: Path) -> None:
+        conn, repo = _make_event_repo(tmp_path)
+        for i in range(5):
+            repo.add_event(
+                _make_event(
+                    event_id=f"id-{i}",
+                    created_at=f"2026-03-09T12:0{i}:00+00:00",
+                )
+            )
+        events = repo.list_events(limit=3)
+        assert len(events) == 3
+        conn.close()
+
+    def test_list_newest_first(self, tmp_path: Path) -> None:
+        conn, repo = _make_event_repo(tmp_path)
+        repo.add_event(_make_event(event_id="old", created_at="2026-01-01T00:00:00+00:00"))
+        repo.add_event(_make_event(event_id="new", created_at="2026-03-09T23:59:59+00:00"))
+
+        events = repo.list_events()
+        assert events[0].event_id == "new"
+        assert events[1].event_id == "old"
+        conn.close()
+
+    def test_filter_by_status(self, tmp_path: Path) -> None:
+        conn, repo = _make_event_repo(tmp_path)
+        repo.add_event(_make_event(event_id="a", status="authorised"))
+        repo.add_event(_make_event(event_id="u", status="unauthorised"))
+
+        auth = repo.list_events(status="authorised")
+        assert len(auth) == 1
+        assert auth[0].event_id == "a"
+
+        unauth = repo.list_events(status="unauthorised")
+        assert len(unauth) == 1
+        assert unauth[0].event_id == "u"
+        conn.close()
+
+    def test_empty_list(self, tmp_path: Path) -> None:
+        conn, repo = _make_event_repo(tmp_path)
+        assert repo.list_events() == []
+        conn.close()
+
+    def test_snapshot_and_clip_nullable(self, tmp_path: Path) -> None:
+        conn, repo = _make_event_repo(tmp_path)
+        ev = _make_event()
+        repo.add_event(ev)
+        loaded = repo.list_events()[0]
+        assert loaded.snapshot_path is None
+        assert loaded.clip_path is None
+        conn.close()
+
+
+# ===================================================================
+# SQLiteEmbeddingRepository  (ML Integration)
+# ===================================================================
+
+def _make_emb_repos(tmp_path: Path):
+    """Create SQLitePersonRepository + SQLiteEmbeddingRepository."""
+    db_path = tmp_path / "test.sqlite"
+    conn = init_db(db_path)
+    return conn, SQLitePersonRepository(conn), SQLiteEmbeddingRepository(conn)
+
+
+class TestSQLiteEmbeddingRepository:
+    """CRUD operations on the person_embeddings table."""
+
+    def test_add_and_get_embeddings(self, tmp_path: Path) -> None:
+        conn, person_repo, emb_repo = _make_emb_repos(tmp_path)
+        person = person_repo.add_person("Alice", _random_embedding())
+        e1 = _random_embedding()
+        e2 = _random_embedding()
+        emb_repo.add_embedding(person.person_id, e1)
+        emb_repo.add_embedding(person.person_id, e2)
+
+        embs = emb_repo.get_embeddings(person.person_id)
+        assert len(embs) == 2
+        np.testing.assert_allclose(embs[0], e1.astype(np.float32), atol=1e-6)
+        np.testing.assert_allclose(embs[1], e2.astype(np.float32), atol=1e-6)
+        conn.close()
+
+    def test_count_embeddings(self, tmp_path: Path) -> None:
+        conn, person_repo, emb_repo = _make_emb_repos(tmp_path)
+        person = person_repo.add_person("Bob", _random_embedding())
+        assert emb_repo.count_embeddings(person.person_id) == 0
+        emb_repo.add_embedding(person.person_id, _random_embedding())
+        assert emb_repo.count_embeddings(person.person_id) == 1
+        emb_repo.add_embedding(person.person_id, _random_embedding())
+        assert emb_repo.count_embeddings(person.person_id) == 2
+        conn.close()
+
+    def test_delete_embeddings(self, tmp_path: Path) -> None:
+        conn, person_repo, emb_repo = _make_emb_repos(tmp_path)
+        person = person_repo.add_person("Carol", _random_embedding())
+        emb_repo.add_embedding(person.person_id, _random_embedding())
+        emb_repo.add_embedding(person.person_id, _random_embedding())
+        deleted = emb_repo.delete_embeddings(person.person_id)
+        assert deleted == 2
+        assert emb_repo.count_embeddings(person.person_id) == 0
+        conn.close()
+
+    def test_max_gallery_enforced(self, tmp_path: Path, monkeypatch) -> None:
+        """Adding beyond MAX_GALLERY_EMBEDDINGS drops the oldest."""
+        monkeypatch.setattr("app.config.MAX_GALLERY_EMBEDDINGS", 3)
+        conn, person_repo, emb_repo = _make_emb_repos(tmp_path)
+        person = person_repo.add_person("Dave", _random_embedding())
+
+        embeddings = [_random_embedding() for _ in range(5)]
+        for e in embeddings:
+            emb_repo.add_embedding(person.person_id, e)
+
+        stored = emb_repo.get_embeddings(person.person_id)
+        assert len(stored) == 3
+        # The oldest two should have been evicted — only last 3 remain
+        np.testing.assert_allclose(
+            stored[-1], embeddings[-1].astype(np.float32), atol=1e-6
+        )
+        conn.close()
+
+    def test_empty_get(self, tmp_path: Path) -> None:
+        conn, person_repo, emb_repo = _make_emb_repos(tmp_path)
+        person = person_repo.add_person("Eve", _random_embedding())
+        assert emb_repo.get_embeddings(person.person_id) == []
+        conn.close()
+
+    def test_person_embeddings_table_created(self, tmp_path: Path) -> None:
+        conn, _, _ = _make_emb_repos(tmp_path)
+        cursor = conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' "
+            "AND name='person_embeddings'"
+        )
+        assert cursor.fetchone() is not None
         conn.close()

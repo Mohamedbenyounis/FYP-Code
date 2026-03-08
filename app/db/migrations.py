@@ -1,8 +1,9 @@
 """
 Database initialisation and migrations.
 
-Iteration 2: ``init_db`` creates the SQLite file (if absent), applies the
-schema, and enables WAL + foreign-key pragmas.
+Iteration 3: ``init_db`` creates the SQLite file (if absent), applies the
+schema, migrates the events table if the old Iteration 2 schema is detected,
+and enables WAL + foreign-key pragmas.
 """
 
 from __future__ import annotations
@@ -13,6 +14,30 @@ from pathlib import Path
 from app.services.logging_service import get_logger
 
 _SCHEMA_FILE = Path(__file__).resolve().parent / "schema.sql"
+
+
+def _migrate_events_table(conn: sqlite3.Connection, log) -> None:
+    """
+    Detect the old Iteration 2 events schema and replace it.
+
+    The old table had columns: id (INTEGER), person_id, event_type,
+    confidence, similarity_score, snapshot_path, created_at.
+
+    The new Iteration 3 table has: id (TEXT UUID), status, person_name,
+    person_id, score, bbox_json, snapshot_path, clip_path, created_at.
+
+    Since the table held no production data (no code populated it before
+    Iteration 3), we simply DROP + recreate.
+    """
+    cursor = conn.execute("PRAGMA table_info(events);")
+    columns = {row[1] for row in cursor.fetchall()}
+
+    if "event_type" in columns and "status" not in columns:
+        log.info("Migrating events table from Iteration 2 → 3 schema")
+        conn.execute("DROP TABLE IF EXISTS events;")
+        # Also drop old indices that reference removed columns
+        conn.execute("DROP INDEX IF EXISTS idx_events_person_id;")
+        conn.commit()
 
 
 def init_db(db_path: Path) -> sqlite3.Connection:
@@ -46,6 +71,9 @@ def init_db(db_path: Path) -> sqlite3.Connection:
     # Pragmas -----------------------------------------------------------
     conn.execute("PRAGMA journal_mode=WAL;")
     conn.execute("PRAGMA foreign_keys=ON;")
+
+    # Migrate old events table (Iteration 2 → 3) ----------------------
+    _migrate_events_table(conn, log)
 
     # Apply schema (idempotent thanks to IF NOT EXISTS) -----------------
     schema_sql = _SCHEMA_FILE.read_text(encoding="utf-8")

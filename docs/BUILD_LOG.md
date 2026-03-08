@@ -1,5 +1,74 @@
 # SecureVision Build Log
 
+## 2026-03 — Iteration 3: Level 2 Event Manager (Complete)
+
+### Purpose
+Implement event logging to SQLite — a state machine that confirms face
+presence via a K-of-N rolling window, emits `Event` objects, and persists
+them to the `events` table.  No dashboard, no snapshots, no clips, no
+tracking, no RTSP.
+
+### Architecture Decisions
+- **EventManager is pure logic** — lives in `core/event_manager.py`, receives
+  `Observation` objects, returns `Optional[Event]`.  No I/O, no SQL.
+- **Single-target MVP** — one person tracked at a time.  Multi-target
+  tracking deferred to Iteration 6.
+- **State machine**: IDLE → CONFIRMING → ACTIVE → COOLDOWN → IDLE.
+- **K-of-N confirmation** — prevents single-frame noise from firing events.
+- **Cooldown** — prevents rapid re-fire after an event closes.
+- **UUID-4 event IDs** — future-proof for distributed systems / dashboard.
+- **SQL stays in `db/repo.py`** — `SQLiteEventRepository.add_event()` and
+  `list_events()` encapsulate all event SQL.
+
+### What Changed
+- **core/models.py** — Added `Observation` and `Event` dataclasses.  Added
+  `BoundingBox.to_json()` / `from_json()` for DB serialisation.
+- **core/event_manager.py** — **NEW** Level 2 state machine with 4 states,
+  rolling window, best-score tracking, cooldown timer.
+- **config.py** — Added `EVENT_CONFIRM_WINDOW_N` (5), `EVENT_CONFIRM_MIN_K`
+  (3), `EVENT_LOST_FRAMES` (5), `EVENT_COOLDOWN_SECONDS` (10.0),
+  `EVENT_SCORE_THRESHOLD` (0.4).  All with `SV_*` env overrides.
+- **db/schema.sql** — Redesigned `events` table: TEXT PK (UUID), `status`,
+  `person_name`, `score`, `bbox_json`, `snapshot_path`, `clip_path`.
+  Added `idx_events_status` index.
+- **db/repo.py** — Added `SQLiteEventRepository` with `add_event(Event)` and
+  `list_events(limit, status)`.  Imported `Event` model.
+- **main.py** — Wired `EventManager` + `SQLiteEventRepository`.  Builds
+  `Observation` from `FrameResult` on each processed frame.  Logs events.
+  Updated banner to "Iteration 3".
+- **tests/test_event_manager.py** — **NEW** 18 tests: IDLE, CONFIRMING,
+  ACTIVE, COOLDOWN, best-score tracking, UUID/timestamp validation.
+- **tests/test_db_repo.py** — Added 6 event repository tests: add/list,
+  limit, ordering, status filter, nullable fields.
+- **docs/ARCHITECTURE.md** — Added Iteration 3 data flow diagram,
+  EventManager section, updated module map and iteration table.
+- **docs/SETUP.md** — Added 5 event config vars, "Inspect Events" section.
+
+### Files Touched
+```
+app/core/models.py             (MODIFIED)
+app/core/event_manager.py      (NEW)
+app/config.py                  (MODIFIED)
+app/db/schema.sql              (MODIFIED)
+app/db/repo.py                 (MODIFIED)
+app/main.py                    (MODIFIED)
+tests/test_event_manager.py    (NEW)
+tests/test_db_repo.py          (MODIFIED)
+docs/ARCHITECTURE.md           (MODIFIED)
+docs/SETUP.md                  (MODIFIED)
+docs/BUILD_LOG.md              (MODIFIED)
+```
+
+### Test Results
+```
+55 passed in 2.35s  (31 existing + 18 event manager + 6 event DB)
+```
+
+### Next Steps
+- **Iteration 4**: Snapshot + clip recording on event emission
+
+---
+
 ## 2026-03 — Iteration 2: Refinement Pass (Complete)
 
 ### Purpose

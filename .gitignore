@@ -22,7 +22,6 @@ env/
 data/db/*.db
 data/snapshots/*
 data/clips/*
-data/enrolled/*.npy
 !data/db/.gitkeep
 !data/snapshots/.gitkeep
 !data/clips/.gitkeep
@@ -39,3 +38,7 @@ htmlcov/
 # OS files
 .DS_Store
 Thumbs.db
+
+
+# reports
+docs/ITERATION_2_REPORT.md

@@ -54,6 +54,43 @@ refactoring existing layers.
   └──────────┘          └──────────────┘
 ```
 
+## Iteration 3 Data Flow  (Event Manager)
+
+```
+  FrameResult (from FacePipeline)
+       │
+       ▼
+  main.py  ──────────────────────────────────
+       │  builds Observation(face_present,   │
+       │    person_name, score, bbox)         │
+       ▼                                      │
+  ┌──────────────────┐                        │
+  │  EventManager     │  core/event_manager.py│
+  │                   │                       │
+  │  IDLE             │  no face activity     │
+  │   ↓ face detected │                       │
+  │  CONFIRMING       │  K-of-N rolling check │
+  │   ↓ K faces in N  │                       │
+  │  ACTIVE ──────────┼── emits Event ──┐     │
+  │   ↓ lost frames   │                │     │
+  │  COOLDOWN         │  suppress timer │     │
+  │   ↓ timer expires │                │     │
+  │  IDLE             │                │     │
+  └──────────────────┘                │     │
+                                       ▼     │
+                            ┌────────────┐   │
+                            │ SQLiteEvent │   │
+                            │ Repository  │   │
+                            │ .add_event()│   │
+                            └──────┬─────┘   │
+                                   ▼         │
+                            ┌────────────┐   │
+                            │  events     │   │
+                            │  table      │   │
+                            └────────────┘   │
+  ───────────────────────────────────────────
+```
+
 ### Enrollment Flow
 
 ```
@@ -109,26 +146,32 @@ detection and recognition results are logged to the console.  No
 | Iteration | What Changes | What Stays the Same |
 |-----------|-------------|---------------------|
 | 2 – SQLite | `db/repo.py`, `db/migrations.py`, `enroll.py` | pipeline API, camera |
-| 3 – Events | new `services/event_manager.py` consumes `FrameResult` | pipeline, main |
+| 3 – Events | `core/event_manager.py`, `db/repo.py`, `main.py` | pipeline, camera, enroll |
 | 4 – Snapshots | `recording/snapshot_recorder.py` | pipeline, camera |
 | 5 – Dashboard | `web/` reads DB via `repo.py` | pipeline (separate process) |
 | 6 – Tracking | `tracking/` wraps pipeline | pipeline API unchanged |
 | 7 – RTSP | `camera/rtsp.py` implements same ABC | pipeline, main |
 | 8 – Alerts | `services/alert_service.py` subscribes to events | everything else |
 
-## Early `events` Table
+## Events Table  (Iteration 3)
 
-The `events` table is created alongside `persons` in Iteration 2 even though
-no code populates it until Iteration 3.  This is intentional:
+The `events` table stores confirmed presence events emitted by the
+`EventManager`.  Each row represents one IDLE → ACTIVE transition.
 
-* **Schema idempotency** — `CREATE TABLE IF NOT EXISTS` runs on every startup.
-  Adding the table now means Iteration 3 only needs to write to it, not
-  migrate the schema.
-* **Foreign-key consistency** — `events.person_id` references `persons(id)`.
-  Defining both tables in the same DDL file avoids ordering issues when
-  `PRAGMA foreign_keys=ON` is active.
-* **Zero runtime cost** — an empty table with no writes adds no measurable
-  overhead.
+| Column | Type | Description |
+|--------|------|-------------|
+| `id` | TEXT PK | UUID-4 string |
+| `status` | TEXT NOT NULL | `"authorised"` or `"unauthorised"` |
+| `person_name` | TEXT | Display name (NULL ⇒ unknown face) |
+| `person_id` | INTEGER FK | References `persons(id)` |
+| `score` | REAL | Best cosine similarity |
+| `bbox_json` | TEXT | JSON bounding box at confirmation |
+| `snapshot_path` | TEXT | Reserved for Iteration 4 |
+| `clip_path` | TEXT | Reserved for Iteration 4 |
+| `created_at` | TEXT NOT NULL | ISO 8601 UTC timestamp |
+
+The `EventManager` is pure logic — `main.py` calls `event_repo.add_event()`
+to persist the `Event` object.  All SQL stays in `db/repo.py`.
 
 ## SQLite Threading Note
 
@@ -147,9 +190,11 @@ a separate connection.
 ```
 app/
 ├── config.py               # All configuration + env overrides
-├── main.py                 # Entry point (uses FacePipeline only)
+├── main.py                 # Entry point (uses FacePipeline + EventManager)
 ├── enroll.py               # CLI enrollment  (Iteration 2)
-├── core/models.py          # Shared dataclasses
+├── core/
+│   ├── models.py           # Shared dataclasses (incl. Observation, Event)
+│   └── event_manager.py    # Level 2 state machine  (Iteration 3)
 ├── camera/
 │   ├── base.py             # CameraSource ABC
 │   ├── webcam.py           # USB webcam (Iteration 1)
@@ -162,7 +207,7 @@ app/
 ├── db/
 │   ├── schema.sql          # DDL for persons + events
 │   ├── migrations.py       # init_db(), WAL + FK pragmas
-│   └── repo.py             # SQLitePersonRepository + provider factory
+│   └── repo.py             # SQLitePersonRepository + SQLiteEventRepository
 ├── tracking/               # Stub — Iteration 6
 ├── recording/              # Stub — Iteration 4
 ├── services/
