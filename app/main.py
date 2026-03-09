@@ -1,21 +1,28 @@
 """
-SecureVision — main entry point (Iteration 2).
+SecureVision — main entry point (Iteration 3).
 
-Captures webcam frames, runs the ML pipeline every N-th frame, and displays
-the results in a live window.  The ML pipeline is a pluggable adapter:
-``main.py`` never touches detector / recogniser / SQL directly.
+Captures webcam frames, runs the ML pipeline every N-th frame, feeds
+observations into the EventManager, and persists confirmed events to
+the SQLite database.
 """
 
 from __future__ import annotations
 
 import sys
+import time
 
 import cv2
 
 from app import config
 from app.camera.webcam import WebcamCamera
+from app.core.event_manager import EventManager
+from app.core.models import Observation
 from app.db.migrations import init_db
-from app.db.repo import SQLitePersonRepository, make_enrolled_provider
+from app.db.repo import (
+    SQLiteEventRepository,
+    SQLitePersonRepository,
+    make_enrolled_provider,
+)
 from app.ml.pipeline import FacePipeline
 from app.services.logging_service import FrameRateLogger, get_logger
 
@@ -36,7 +43,7 @@ def main() -> int:
     """Application entry point.  Returns 0 on success, 1 on error."""
     log = get_logger()
     log.info("=" * 60)
-    log.info("SecureVision starting — Iteration 2")
+    log.info("SecureVision starting — Iteration 3")
     log.info("=" * 60)
 
     # Ensure folders ---------------------------------------------------
@@ -48,7 +55,24 @@ def main() -> int:
     conn = init_db(config.DB_PATH)
     repo = SQLitePersonRepository(conn)
     enrolled_provider = make_enrolled_provider(repo)
+    event_repo = SQLiteEventRepository(conn)
     log.info("DB path  : %s", config.DB_PATH)
+
+    # Event Manager (Level 2 state machine) ----------------------------
+    event_manager = EventManager(
+        window_n=config.EVENT_CONFIRM_WINDOW_N,
+        confirm_k=config.EVENT_CONFIRM_MIN_K,
+        lost_frames=config.EVENT_LOST_FRAMES,
+        cooldown_seconds=config.EVENT_COOLDOWN_SECONDS,
+        score_threshold=config.EVENT_SCORE_THRESHOLD,
+    )
+    log.info(
+        "EventManager: window=%d  confirm=%d  lost=%d  cooldown=%.1fs",
+        config.EVENT_CONFIRM_WINDOW_N,
+        config.EVENT_CONFIRM_MIN_K,
+        config.EVENT_LOST_FRAMES,
+        config.EVENT_COOLDOWN_SECONDS,
+    )
 
     # Camera -----------------------------------------------------------
     camera = WebcamCamera(device_index=config.CAMERA_INDEX)
@@ -70,6 +94,7 @@ def main() -> int:
     frame_counter = 0
     stats = FrameRateLogger(log_every_n=100)
     log.info("Entering main loop (Ctrl+C to stop)")
+    last_result = None  # persist detection across frames for smooth drawing
 
     try:
         while True:
@@ -87,6 +112,7 @@ def main() -> int:
             # --- ML processing (every N-th frame) -------------------------
             if frame_counter % config.PROCESS_EVERY_N_FRAMES == 0:
                 result = pipeline.process_frame(frame)
+                last_result = result  # persist for drawing on all frames
 
                 # Structured console output (always active)
                 if result.primary_detection is not None:
@@ -121,16 +147,50 @@ def main() -> int:
                     ),
                 )
 
+                # --- Event Manager (Iteration 3) -------------------------
+                obs = Observation(
+                    timestamp=time.monotonic(),
+                    face_present=result.primary_detection is not None,
+                    person_name=(
+                        result.recognition.name
+                        if result.recognition is not None
+                        and result.recognition.is_match
+                        else None
+                    ),
+                    person_id=None,  # resolved in future iteration
+                    score=(
+                        result.recognition.score
+                        if result.recognition is not None
+                        else 0.0
+                    ),
+                    bbox=(
+                        result.primary_detection.bbox
+                        if result.primary_detection is not None
+                        else None
+                    ),
+                )
+
+                event = event_manager.update(obs)
+                if event is not None:
+                    event_repo.add_event(event)
+                    log.info(
+                        "EVENT  id=%s  status=%s  person=%s  score=%.3f",
+                        event.event_id[:8],
+                        event.status,
+                        event.person_name or "unknown",
+                        event.score or 0.0,
+                    )
+
             # --- Preview window (guarded by SHOW_PREVIEW) -----------------
             if config.SHOW_PREVIEW:
                 display_frame = frame.copy()
 
-                # Overlay detection bbox on ML-processed frames
+                # Overlay detection bbox using latest ML result
                 if (
-                    frame_counter % config.PROCESS_EVERY_N_FRAMES == 0
-                    and result.primary_detection is not None
+                    last_result is not None
+                    and last_result.primary_detection is not None
                 ):
-                    b = result.primary_detection.bbox
+                    b = last_result.primary_detection.bbox
                     cv2.rectangle(
                         display_frame,
                         (b.x1, b.y1),
@@ -139,9 +199,9 @@ def main() -> int:
                         2,
                     )
 
-                    label = f"conf={result.primary_detection.confidence:.2f}"
-                    if result.recognition is not None:
-                        rec = result.recognition
+                    label = f"conf={last_result.primary_detection.confidence:.2f}"
+                    if last_result.recognition is not None:
+                        rec = last_result.recognition
                         if rec.is_match:
                             label = f"{rec.name} ({rec.score:.2f})"
                         else:

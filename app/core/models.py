@@ -5,6 +5,7 @@ All models are plain dataclasses — no framework dependency.
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, field
 from typing import Optional, List
 
@@ -43,6 +44,18 @@ class BoundingBox:
     def as_tuple(self) -> tuple[int, int, int, int]:
         """Return (x1, y1, x2, y2)."""
         return (self.x1, self.y1, self.x2, self.y2)
+
+    def to_json(self) -> str:
+        """Serialise to a JSON string for DB storage."""
+        return json.dumps(
+            {"x1": self.x1, "y1": self.y1, "x2": self.x2, "y2": self.y2}
+        )
+
+    @classmethod
+    def from_json(cls, s: str) -> BoundingBox:
+        """Reconstruct from a JSON string."""
+        d = json.loads(s)
+        return cls(x1=d["x1"], y1=d["y1"], x2=d["x2"], y2=d["y2"])
 
 
 # ---------------------------------------------------------------------------
@@ -108,3 +121,67 @@ class EnrolledPerson:
     person_id: int
     name: str
     embedding: np.ndarray
+
+
+# ---------------------------------------------------------------------------
+# Observation — raw per-frame input to the EventManager  (Iteration 3)
+# ---------------------------------------------------------------------------
+
+@dataclass
+class Observation:
+    """
+    A single processed-frame observation fed into the EventManager.
+
+    Built by ``main.py`` from a ``FrameResult``.  The event manager
+    accumulates observations to decide when to emit an ``Event``.
+    """
+
+    timestamp: float                          # time.monotonic() seconds
+    face_present: bool                        # True if primary_detection exists
+    person_name: Optional[str] = None         # recognised name (None ⇒ unknown)
+    person_id: Optional[int] = None           # DB id, if recognised
+    score: float = 0.0                        # cosine similarity
+    bbox: Optional[BoundingBox] = None        # primary face bbox
+
+
+# ---------------------------------------------------------------------------
+# Event — confirmed presence event written to the DB  (Iteration 3)
+# ---------------------------------------------------------------------------
+
+@dataclass
+class Event:
+    """
+    A confirmed presence event emitted by the EventManager and persisted
+    to the ``events`` table via ``db/repo.py``.
+
+    Fields
+    ------
+    event_id : str
+        UUID-4 string (generated at emission time).
+    created_at : str
+        UTC ISO 8601 timestamp.
+    status : str
+        ``"authorised"`` or ``"unauthorised"``.
+    person_name : str | None
+        Display name if recognised, else None.
+    person_id : int | None
+        DB person id if recognised, else None.
+    score : float | None
+        Best cosine similarity during the confirmed observation window.
+    bbox_json : str | None
+        JSON-serialised bounding box at confirmation time.
+    snapshot_path : str | None
+        Reserved for Iteration 4 (always None for now).
+    clip_path : str | None
+        Reserved for Iteration 4 (always None for now).
+    """
+
+    event_id: str
+    created_at: str
+    status: str
+    person_name: Optional[str] = None
+    person_id: Optional[int] = None
+    score: Optional[float] = None
+    bbox_json: Optional[str] = None
+    snapshot_path: Optional[str] = None
+    clip_path: Optional[str] = None

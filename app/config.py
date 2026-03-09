@@ -65,10 +65,10 @@ DB_PATH: Path = Path(_env("SV_DB_PATH", str(DB_DIR / "securevision.sqlite")))
 # =============================================================================
 
 SCRFD_MODEL_PATH: Path = Path(
-    _env("SV_SCRFD_MODEL", str(MODELS_DIR / "scrfd_10g_bnkps.onnx"))
+    _env("SV_SCRFD_MODEL", str(MODELS_DIR / "det_500m.onnx"))
 )
 ARCFACE_MODEL_PATH: Path = Path(
-    _env("SV_ARCFACE_MODEL", str(MODELS_DIR / "arcface_r100.onnx"))
+    _env("SV_ARCFACE_MODEL", str(MODELS_DIR / "w600k_mbf.onnx"))
 )
 
 # =============================================================================
@@ -93,8 +93,10 @@ PREVIEW_WINDOW_NAME: str = _env("SV_PREVIEW_WINDOW_NAME", "SecureVision")
 # ML THRESHOLDS
 # =============================================================================
 
-DETECTION_CONF_THRESH: float = _env_float("SV_DETECTION_CONF_THRESH", 0.5)
-RECOGNITION_SIM_THRESH: float = _env_float("SV_RECOGNITION_SIM_THRESH", 0.4)
+DETECTION_CONF_THRESH: float = _env_float("SV_DETECTION_CONF_THRESH", 0.45)
+RECOGNITION_SIM_THRESH: float = _env_float("SV_RECOGNITION_SIM_THRESH", 0.25)
+NMS_IOU_THRESH: float = _env_float("SV_NMS_IOU_THRESH", 0.4)
+MAX_GALLERY_EMBEDDINGS: int = _env_int("SV_MAX_GALLERY_EMBEDDINGS", 5)
 
 # =============================================================================
 # PERFORMANCE
@@ -107,6 +109,25 @@ PROCESS_EVERY_N_FRAMES: int = _env_int("SV_PROCESS_EVERY_N_FRAMES", 3)
 # =============================================================================
 
 ONNX_PROVIDERS: list[str] = ["CPUExecutionProvider"]
+
+# =============================================================================
+# EVENT MANAGER  (Iteration 3)
+# =============================================================================
+
+EVENT_CONFIRM_WINDOW_N: int = _env_int("SV_EVENT_CONFIRM_WINDOW_N", 5)
+"""Rolling window size — how many recent observations to keep."""
+
+EVENT_CONFIRM_MIN_K: int = _env_int("SV_EVENT_CONFIRM_MIN_K", 3)
+"""Min face-present observations inside the window to confirm presence."""
+
+EVENT_LOST_FRAMES: int = _env_int("SV_EVENT_LOST_FRAMES", 5)
+"""Consecutive no-face observations before an active event ends."""
+
+EVENT_COOLDOWN_SECONDS: float = _env_float("SV_EVENT_COOLDOWN_SECONDS", 10.0)
+"""Seconds to stay in COOLDOWN after an event closes (prevent re-fire)."""
+
+EVENT_SCORE_THRESHOLD: float = _env_float("SV_EVENT_SCORE_THRESHOLD", 0.4)
+"""Min cosine similarity to tag an event as 'authorised'."""
 
 # =============================================================================
 # LOGGING

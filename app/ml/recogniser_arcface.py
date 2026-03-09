@@ -19,7 +19,7 @@ from app.services.logging_service import get_logger
 
 class ArcFaceRecogniser:
     """
-    ArcFace embedding model (ResNet-100 variant by default).
+    ArcFace embedding model (MobileFaceNet / w600k_mbf).
 
     Loads the ONNX model once.  Provides ``embed`` and ``compare``.
     """
@@ -71,8 +71,9 @@ class ArcFaceRecogniser:
         """
         Generate a **unit-length** 512-d embedding for *face_crop*.
 
-        ``face_crop`` is a BGR image of any size — preprocessing is done
-        internally via :pymod:`app.ml.preprocess`.
+        ``face_crop`` should be an aligned BGR face image (ideally
+        112×112 from :func:`preprocess.align_face_5point`).  Resize
+        and ArcFace normalisation are applied internally.
         """
         from app.ml.preprocess import resize_face, normalize_for_arcface
 

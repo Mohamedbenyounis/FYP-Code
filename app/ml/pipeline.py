@@ -25,7 +25,7 @@ from app.core.models import (
 )
 from app.ml.detector_scrfd import ModelNotFoundError, SCRFDDetector, select_largest_face
 from app.ml.recogniser_arcface import ArcFaceRecogniser
-from app.ml.preprocess import safe_crop_face
+from app.ml.preprocess import align_face_5point, safe_crop_face
 from app.services.logging_service import get_logger
 
 # Type alias for the provider — any zero-arg callable returning persons.
@@ -184,9 +184,14 @@ class FacePipeline:
             result.message = "No primary face selected"
             return result
 
-        # 3. Recognition (optional — needs recogniser + crop) ---------------
+        # 3. Recognition (optional — needs recogniser + aligned crop) ------
         if self._recogniser is not None:
-            crop = safe_crop_face(frame, primary.bbox)
+            # Prefer 5-point alignment; fall back to padded bbox crop
+            crop = None
+            if primary.keypoints is not None:
+                crop = align_face_5point(frame, primary.keypoints)
+            if crop is None:
+                crop = safe_crop_face(frame, primary.bbox)
             if crop.size == 0:
                 result.message = (
                     f"Detected face conf={primary.confidence:.2f} "
