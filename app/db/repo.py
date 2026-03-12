@@ -421,3 +421,12 @@ class SQLiteEventRepository:
                 )
             )
         return results
+
+    def update_event_snapshot(self, event_id: str, snapshot_path: str) -> bool:
+        """Update the snapshot path for an existing event row."""
+        cursor = self._conn.execute(
+            "UPDATE events SET snapshot_path = ? WHERE id = ?",
+            (snapshot_path, event_id),
+        )
+        self._conn.commit()
+        return cursor.rowcount > 0

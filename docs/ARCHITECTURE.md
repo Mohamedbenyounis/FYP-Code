@@ -91,6 +91,29 @@ refactoring existing layers.
   ───────────────────────────────────────────
 ```
 
+## Iteration 4 Data Flow  (Snapshot Evidence)
+
+```
+     EventManager.update(observation)
+                         │
+                         ├── returns Event | None
+                         ▼
+     main.py orchestration
+          1) event_repo.add_event(event)
+          2) snapshot_recorder.on_event(event, frame)
+          3) event_repo.update_event_snapshot(event_id, path)
+                         │
+                         ▼
+               events.snapshot_path
+```
+
+Notes:
+- `EventManager` remains pure logic and file-system agnostic.
+- `SnapshotRecorder` saves files only (no SQL).
+- SQLite path updates remain in `db/repo.py`.
+- This shape intentionally prepares for a future `ClipRecorder` beside
+     `SnapshotRecorder` without redesigning orchestration.
+
 ### Enrollment Flow
 
 ```
@@ -147,7 +170,7 @@ detection and recognition results are logged to the console.  No
 |-----------|-------------|---------------------|
 | 2 – SQLite | `db/repo.py`, `db/migrations.py`, `enroll.py` | pipeline API, camera |
 | 3 – Events | `core/event_manager.py`, `db/repo.py`, `main.py` | pipeline, camera, enroll |
-| 4 – Snapshots | `recording/snapshot_recorder.py` | pipeline, camera |
+| 4 – Snapshots | `recording/snapshot_recorder.py`, `db/repo.py`, `main.py` | event manager, ML pipeline |
 | 5 – Dashboard | `web/` reads DB via `repo.py` | pipeline (separate process) |
 | 6 – Tracking | `tracking/` wraps pipeline | pipeline API unchanged |
 | 7 – RTSP | `camera/rtsp.py` implements same ABC | pipeline, main |
@@ -209,7 +232,10 @@ app/
 │   ├── migrations.py       # init_db(), WAL + FK pragmas
 │   └── repo.py             # SQLitePersonRepository + SQLiteEventRepository
 ├── tracking/               # Stub — Iteration 6
-├── recording/              # Stub — Iteration 4
+├── recording/
+│   ├── base.py             # Recorder interface
+│   ├── snapshot_recorder.py # Event snapshot evidence (Iteration 4)
+│   └── clip_recorder.py    # Stub — Iteration 7
 ├── services/
 │   ├── logging_service.py  # Centralised logger
 │   ├── alert_service.py    # Stub — Iteration 8

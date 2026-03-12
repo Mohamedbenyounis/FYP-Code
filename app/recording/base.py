@@ -1,18 +1,20 @@
-"""
-Abstract base class for recorders.
-Stub for Iteration 4.
-"""
+"""Recording abstractions used by evidence capture modules."""
+
+from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Optional
+
 import numpy as np
+
+from app.core.models import Event
 
 
 class Recorder(ABC):
-    """Abstract base class for media recorders."""
+    """Abstract recorder interface for event-triggered media capture."""
 
     @abstractmethod
-    def save(self, frame: np.ndarray, event_id: Optional[int] = None) -> Optional[Path]:
-        """Save media and return path."""
-        pass
+    def on_event(self, event: Event, frame: np.ndarray) -> Optional[Path]:
+        """Capture evidence for an event and return the saved file path."""
+        raise NotImplementedError

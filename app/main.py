@@ -24,6 +24,7 @@ from app.db.repo import (
     make_enrolled_provider,
 )
 from app.ml.pipeline import FacePipeline
+from app.recording.snapshot_recorder import SnapshotRecorder
 from app.services.logging_service import FrameRateLogger, get_logger
 
 
@@ -56,6 +57,7 @@ def main() -> int:
     repo = SQLitePersonRepository(conn)
     enrolled_provider = make_enrolled_provider(repo)
     event_repo = SQLiteEventRepository(conn)
+    snapshot_recorder = SnapshotRecorder(config.SNAPSHOTS_DIR)
     log.info("DB path  : %s", config.DB_PATH)
 
     # Event Manager (Level 2 state machine) ----------------------------
@@ -173,6 +175,35 @@ def main() -> int:
                 event = event_manager.update(obs)
                 if event is not None:
                     event_repo.add_event(event)
+
+                    snapshot_path = snapshot_recorder.on_event(event, frame)
+                    if snapshot_path is not None:
+                        try:
+                            rel_path = str(snapshot_path.relative_to(config.BASE_DIR))
+                        except ValueError:
+                            rel_path = str(snapshot_path)
+
+                        updated = event_repo.update_event_snapshot(
+                            event.event_id,
+                            rel_path,
+                        )
+                        if updated:
+                            log.info(
+                                "EVENT SNAPSHOT linked id=%s path=%s",
+                                event.event_id[:8],
+                                rel_path,
+                            )
+                        else:
+                            log.warning(
+                                "EVENT SNAPSHOT link failed id=%s",
+                                event.event_id[:8],
+                            )
+                    else:
+                        log.warning(
+                            "EVENT SNAPSHOT save failed id=%s",
+                            event.event_id[:8],
+                        )
+
                     log.info(
                         "EVENT  id=%s  status=%s  person=%s  score=%.3f",
                         event.event_id[:8],

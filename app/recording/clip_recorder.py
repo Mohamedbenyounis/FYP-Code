@@ -19,8 +19,8 @@ class ClipRecorder(Recorder):
         self.post_seconds = post_seconds
         # TODO: Implement in Iteration 7
 
-    def save(self, frame: np.ndarray, event_id: Optional[int] = None) -> Optional[Path]:
-        """Save a video clip."""
+    def on_event(self, event, frame: np.ndarray) -> Optional[Path]:
+        """Save a video clip (Iteration 7)."""
         # TODO: Implement in Iteration 7
         return None
 

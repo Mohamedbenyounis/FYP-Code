@@ -1,5 +1,88 @@
 # SecureVision Build Log
 
+## 2026-03 — Iteration 4: Event Snapshot Evidence (Complete)
+
+### Purpose
+Add event-triggered snapshot evidence capture and link saved image paths to
+the existing SQLite `events` rows. This iteration intentionally excludes
+clip recording/ring buffer logic.
+
+### What Changed
+- **recording/base.py** — Replaced placeholder `save()` API with a minimal
+  event-oriented `Recorder.on_event(event, frame)` interface.
+- **recording/snapshot_recorder.py** — Implemented JPEG snapshot capture:
+  creates output directories, supports date subfolders, optional bbox+label
+  overlay, configurable quality, and robust failure handling.
+- **db/repo.py** — Added `SQLiteEventRepository.update_event_snapshot()` to
+  link saved snapshot file path after event insert.
+- **main.py** — Wired orchestration flow:
+  1) persist event,
+  2) save snapshot,
+  3) update event row with `snapshot_path`,
+  4) emit clear logs for success/failure.
+- **config.py** — Added snapshot config flags:
+  `SV_DRAW_BBOX_ON_SNAPSHOT`, `SV_SNAPSHOT_JPEG_QUALITY`,
+  `SV_SNAPSHOT_SUBDIR_BY_DATE`, `SV_SAVE_RAW_SNAPSHOT`.
+- **tests/test_snapshot_recorder.py** — New focused tests for file save,
+  directory creation, bbox overlay tolerance, and empty-frame handling.
+- **tests/test_db_repo.py** — Added test for event snapshot-path update.
+- **docs/ARCHITECTURE.md / docs/SETUP.md** — Documented Iteration 4 evidence
+  flow and configuration.
+
+### Validation
+```
+Iteration 4 tests added for recorder + DB path update.
+```
+
+## 2026-03 — Adaptive Detection-Only Lighting Compensation (Complete)
+
+### Purpose
+Improve face detection stability in strong backlighting/high-contrast scenes
+without broad architecture changes and without default double detection passes.
+
+### File-by-file Progress
+
+- **app/config.py**
+  Added adaptive preprocessing feature flags and thresholds with `SV_*`
+  environment overrides:
+  `DETECTION_ADAPTIVE_PREPROCESS_ENABLED`, `DETECTION_PREPROCESS_MODE`,
+  `BRIGHT_GLOBAL_THRESHOLD`, `DARK_CENTER_THRESHOLD`,
+  `BACKLIT_SCORE_THRESHOLD`, `CLAHE_CLIP_LIMIT`,
+  `CLAHE_TILE_GRID_SIZE`, `GAMMA_VALUE`.
+
+- **app/ml/preprocess.py**
+  Added isolated lighting and enhancement utilities:
+  `LightingAssessment`, `assess_backlighting`,
+  `apply_clahe_for_detection`, `apply_gamma_for_detection`,
+  `apply_detection_enhancement`, `select_detection_frame`.
+  This keeps adaptive logic local to ML preprocessing.
+
+- **app/ml/pipeline.py**
+  Added orchestration hook before detector call:
+  pipeline selects raw/enhanced frame for detection only via
+  `select_detection_frame(frame)`. Recognition/alignment path continues to use
+  the original frame.
+
+- **tests/test_ml_logic.py**
+  Added pure-logic tests for:
+  1) lighting assessment decisions on synthetic frames,
+  2) CLAHE/gamma shape and dtype preservation,
+  3) pipeline routing to enhanced/raw detection input.
+
+- **docs/ML_INTEGRATION_LOG.md**
+  Documented adaptive detection-only path, rationale, and known heuristic
+  limitations.
+
+- **docs/SETUP.md**
+  Updated model filenames and expanded env var reference with adaptive
+  preprocessing controls and current defaults.
+
+### Validation
+
+```
+tests/test_ml_logic.py: 36 passed
+```
+
 ## 2026-03 — Iteration 3: Level 2 Event Manager (Complete)
 
 ### Purpose

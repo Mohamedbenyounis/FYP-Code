@@ -99,10 +99,44 @@ NMS_IOU_THRESH: float = _env_float("SV_NMS_IOU_THRESH", 0.4)
 MAX_GALLERY_EMBEDDINGS: int = _env_int("SV_MAX_GALLERY_EMBEDDINGS", 5)
 
 # =============================================================================
+# ADAPTIVE DETECTION PREPROCESSING
+# =============================================================================
+
+DETECTION_ADAPTIVE_PREPROCESS_ENABLED: bool = _env_bool(
+    "SV_DETECTION_ADAPTIVE_PREPROCESS_ENABLED", True
+)
+DETECTION_PREPROCESS_MODE: str = _env(
+    "SV_DETECTION_PREPROCESS_MODE", "clahe"
+).strip().lower()
+
+BRIGHT_GLOBAL_THRESHOLD: float = _env_float(
+    "SV_BRIGHT_GLOBAL_THRESHOLD", 165.0
+)
+DARK_CENTER_THRESHOLD: float = _env_float(
+    "SV_DARK_CENTER_THRESHOLD", 115.0
+)
+BACKLIT_SCORE_THRESHOLD: float = _env_float(
+    "SV_BACKLIT_SCORE_THRESHOLD", 35.0
+)
+
+CLAHE_CLIP_LIMIT: float = _env_float("SV_CLAHE_CLIP_LIMIT", 2.0)
+CLAHE_TILE_GRID_SIZE: int = _env_int("SV_CLAHE_TILE_GRID_SIZE", 8)
+GAMMA_VALUE: float = _env_float("SV_GAMMA_VALUE", 1.35)
+
+# =============================================================================
 # PERFORMANCE
 # =============================================================================
 
 PROCESS_EVERY_N_FRAMES: int = _env_int("SV_PROCESS_EVERY_N_FRAMES", 3)
+
+# =============================================================================
+# RECORDING (Iteration 4)
+# =============================================================================
+
+DRAW_BBOX_ON_SNAPSHOT: bool = _env_bool("SV_DRAW_BBOX_ON_SNAPSHOT", True)
+SNAPSHOT_JPEG_QUALITY: int = _env_int("SV_SNAPSHOT_JPEG_QUALITY", 90)
+SNAPSHOT_SUBDIR_BY_DATE: bool = _env_bool("SV_SNAPSHOT_SUBDIR_BY_DATE", True)
+SAVE_RAW_SNAPSHOT: bool = _env_bool("SV_SAVE_RAW_SNAPSHOT", False)
 
 # =============================================================================
 # ONNX RUNTIME

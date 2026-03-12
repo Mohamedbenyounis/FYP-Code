@@ -352,6 +352,18 @@ class TestSQLiteEventRepo:
         assert loaded.clip_path is None
         conn.close()
 
+    def test_update_event_snapshot(self, tmp_path: Path) -> None:
+        conn, repo = _make_event_repo(tmp_path)
+        ev = _make_event(event_id="ev-1")
+        repo.add_event(ev)
+
+        updated = repo.update_event_snapshot("ev-1", "data/snapshots/2026-03-17/ev-1.jpg")
+        assert updated is True
+
+        loaded = repo.list_events(limit=1)[0]
+        assert loaded.snapshot_path == "data/snapshots/2026-03-17/ev-1.jpg"
+        conn.close()
+
 
 # ===================================================================
 # SQLiteEmbeddingRepository  (ML Integration)
