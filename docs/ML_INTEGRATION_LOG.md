@@ -39,6 +39,47 @@ for stride in [8, 16, 32]:
     kp_y[i] = cy + raw_kps[2i+1] * stride
 ```
 
+### Adaptive Detection-Only Lighting Compensation (2026-03-16)
+
+To improve detection robustness in strongly backlit scenes without paying
+the cost of always running detection twice, the pipeline now uses a cheap
+per-frame lighting gate.
+
+Added behavior:
+
+- Compute grayscale brightness statistics before detection:
+  - `global_mean` over the full frame
+  - `center_mean` over the central 50% region
+  - `backlit_score = global_mean - center_mean`
+- If the frame is likely backlit, detection input is enhanced using one
+  configured mode (`none`, `clahe`, `gamma`).
+- If not backlit, detector runs on the raw frame as before.
+
+Decision trigger:
+
+- `(global_mean >= BRIGHT_GLOBAL_THRESHOLD and center_mean <= DARK_CENTER_THRESHOLD)`
+  OR
+- `backlit_score >= BACKLIT_SCORE_THRESHOLD`
+
+Why this is cheaper than a fallback second pass:
+
+- No default double inference per frame.
+- Only one detector pass is executed.
+- Extra work is limited to cheap grayscale stats and optional lightweight
+  enhancement when the heuristic triggers.
+
+Important scope boundary:
+
+- This preprocessing is **detection-only**.
+- Recognition/alignment still consume the original frame path, preserving
+  ArcFace embedding behavior and enrollment compatibility.
+
+Known limitations:
+
+- Brightness heuristic is intentionally simple; it may miss some hard cases
+  (e.g., off-center subject, complex mixed lighting).
+- Thresholds are environment dependent and should be tuned via config/env.
+
 ---
 
 ## 2. Recogniser — ArcFace w600k_mbf

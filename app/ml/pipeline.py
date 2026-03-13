@@ -25,7 +25,7 @@ from app.core.models import (
 )
 from app.ml.detector_scrfd import ModelNotFoundError, SCRFDDetector, select_largest_face
 from app.ml.recogniser_arcface import ArcFaceRecogniser
-from app.ml.preprocess import align_face_5point, safe_crop_face
+from app.ml.preprocess import align_face_5point, safe_crop_face, select_detection_frame
 from app.services.logging_service import get_logger
 
 # Type alias for the provider — any zero-arg callable returning persons.
@@ -158,15 +158,22 @@ class FacePipeline:
             )
 
         # 1. Detect --------------------------------------------------------
-        detections = self._detector.detect(frame)
+        detection_frame, lighting = select_detection_frame(frame)
+        detections = self._detector.detect(detection_frame)
 
         if not detections:
+            mode = "raw"
+            if config.DETECTION_ADAPTIVE_PREPROCESS_ENABLED and lighting.should_enhance:
+                mode = config.DETECTION_PREPROCESS_MODE
             return FrameResult(
                 detections=[],
                 ml_enabled=True,
                 detection_enabled=self.detection_enabled,
                 recognition_enabled=self.recognition_enabled,
-                message="No faces detected",
+                message=(
+                    "No faces detected "
+                    f"(det_mode={mode}, backlit={lighting.should_enhance})"
+                ),
             )
 
         # 2. MVP single-face rule ------------------------------------------

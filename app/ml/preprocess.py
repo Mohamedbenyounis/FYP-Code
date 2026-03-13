@@ -7,11 +7,13 @@ that swapping the model only requires changes inside ``app/ml/``.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import List, Optional, Tuple
 
 import cv2
 import numpy as np
 
+from app import config
 from app.core.models import BoundingBox
 
 
@@ -29,6 +31,16 @@ ARCFACE_REF_LANDMARKS = np.array(
     ],
     dtype=np.float32,
 )
+
+
+@dataclass(frozen=True)
+class LightingAssessment:
+    """Cheap frame-lighting summary used to gate detection enhancement."""
+
+    global_mean: float
+    center_mean: float
+    backlit_score: float
+    should_enhance: bool
 
 
 # ------------------------------------------------------------------
@@ -215,6 +227,115 @@ def prepare_frame_for_detection(
     blob = (rgb.astype(np.float32) - 127.5) / 128.0   # normalise
     chw = blob.transpose(2, 0, 1)                      # HWC → CHW
     return np.expand_dims(chw, axis=0), scale_x, scale_y
+
+
+# ------------------------------------------------------------------
+# Adaptive lighting helpers (detection-only)
+# ------------------------------------------------------------------
+
+def assess_backlighting(frame: np.ndarray) -> LightingAssessment:
+    """
+    Estimate whether the frame is likely strongly backlit.
+
+    Heuristic (cheap and explainable):
+      - global_mean: average brightness over full grayscale frame
+      - center_mean: average brightness over center region
+      - backlit_score = global_mean - center_mean
+
+    We trigger enhancement when:
+      (global bright AND center dark) OR (backlit_score above threshold)
+    """
+    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    h, w = gray.shape[:2]
+
+    # Center region is the middle 50% by width and height.
+    x1 = int(w * 0.25)
+    y1 = int(h * 0.25)
+    x2 = int(w * 0.75)
+    y2 = int(h * 0.75)
+    center = gray[y1:y2, x1:x2]
+
+    global_mean = float(gray.mean())
+    center_mean = float(center.mean()) if center.size else global_mean
+    backlit_score = global_mean - center_mean
+
+    is_bright_global = global_mean >= config.BRIGHT_GLOBAL_THRESHOLD
+    is_dark_center = center_mean <= config.DARK_CENTER_THRESHOLD
+    score_trigger = backlit_score >= config.BACKLIT_SCORE_THRESHOLD
+
+    should_enhance = (is_bright_global and is_dark_center) or score_trigger
+
+    return LightingAssessment(
+        global_mean=global_mean,
+        center_mean=center_mean,
+        backlit_score=backlit_score,
+        should_enhance=should_enhance,
+    )
+
+
+def apply_clahe_for_detection(frame: np.ndarray) -> np.ndarray:
+    """Apply CLAHE on luminance channel and return enhanced BGR frame."""
+    lab = cv2.cvtColor(frame, cv2.COLOR_BGR2LAB)
+    l, a, b = cv2.split(lab)
+
+    tile = max(1, int(config.CLAHE_TILE_GRID_SIZE))
+    clahe = cv2.createCLAHE(
+        clipLimit=float(config.CLAHE_CLIP_LIMIT),
+        tileGridSize=(tile, tile),
+    )
+    l_enhanced = clahe.apply(l)
+
+    merged = cv2.merge((l_enhanced, a, b))
+    return cv2.cvtColor(merged, cv2.COLOR_LAB2BGR)
+
+
+def apply_gamma_for_detection(frame: np.ndarray) -> np.ndarray:
+    """Apply gamma correction and return enhanced BGR frame."""
+    gamma = max(0.01, float(config.GAMMA_VALUE))
+    inv_gamma = 1.0 / gamma
+    table = np.array(
+        [((i / 255.0) ** inv_gamma) * 255 for i in range(256)],
+        dtype=np.float32,
+    ).astype(np.uint8)
+    return cv2.LUT(frame, table)
+
+
+def apply_detection_enhancement(frame: np.ndarray, mode: str) -> np.ndarray:
+    """Dispatch detection enhancement mode: none | clahe | gamma."""
+    mode_norm = mode.strip().lower()
+    if mode_norm == "clahe":
+        return apply_clahe_for_detection(frame)
+    if mode_norm == "gamma":
+        return apply_gamma_for_detection(frame)
+    return frame
+
+
+def select_detection_frame(frame: np.ndarray) -> tuple[np.ndarray, LightingAssessment]:
+    """
+    Choose raw or enhanced frame for detection based on lighting assessment.
+
+    This is detection-only logic; callers should keep recognition/cropping on
+    the original frame.
+    """
+    assessment = assess_backlighting(frame)
+
+    if not config.DETECTION_ADAPTIVE_PREPROCESS_ENABLED:
+        return frame, LightingAssessment(
+            global_mean=assessment.global_mean,
+            center_mean=assessment.center_mean,
+            backlit_score=assessment.backlit_score,
+            should_enhance=False,
+        )
+
+    mode = config.DETECTION_PREPROCESS_MODE
+    if mode not in {"none", "clahe", "gamma"}:
+        mode = "none"
+
+    if not assessment.should_enhance or mode == "none":
+        return frame, assessment
+
+    enhanced = apply_detection_enhancement(frame, mode)
+    return enhanced, assessment
 
 
 # ------------------------------------------------------------------
