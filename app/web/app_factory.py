@@ -1,12 +1,40 @@
 """
 Flask application factory.
-Stub for Iteration 5.
+Iteration 5 dashboard implementation.
 """
 
 from typing import Optional
 
+from flask import Flask
+
+from app import config
+from app.db.migrations import init_db
+from app.services.logging_service import get_logger
+from app.web.routes import web_bp
+
 
 def create_app(config_override: Optional[dict] = None):
     """Create and configure Flask application."""
-    # TODO: Implement in Iteration 5
-    raise NotImplementedError("Web dashboard not implemented yet")
+    app = Flask(
+        __name__,
+        template_folder="templates",
+        static_folder="static",
+    )
+    app.config["SECRET_KEY"] = config.FLASK_SECRET_KEY
+    app.config["SESSION_COOKIE_HTTPONLY"] = True
+    app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
+
+    if config_override:
+        app.config.update(config_override)
+
+    # The dashboard owns its own DB connection (separate process from pipeline).
+    app.config["DB_CONN"] = init_db(config.DB_PATH)
+    app.config["SNAPSHOTS_DIR"] = config.SNAPSHOTS_DIR
+
+    app.register_blueprint(web_bp)
+
+    log = get_logger()
+    if config.FLASK_SECRET_KEY == "securevision-dev-secret":
+        log.warning("SECURITY: SV_FLASK_SECRET_KEY not set; using dev secret")
+
+    return app

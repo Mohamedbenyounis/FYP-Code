@@ -34,7 +34,7 @@ class ArcFaceRecogniser:
         self.similarity_threshold = (
             similarity_threshold
             if similarity_threshold is not None
-            else config.RECOGNITION_SIM_THRESH
+            else config.RECOGNITION_MATCH_THRESHOLD
         )
         self._session = None
         self._input_name: str = ""

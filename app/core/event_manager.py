@@ -50,7 +50,8 @@ class EventManager:
     cooldown_seconds : float
         Seconds to suppress new events after one closes.
     score_threshold : float
-        Minimum cosine similarity to tag an event as *authorised*.
+        Authorisation threshold. A recognised identity below this score
+        remains unauthorised.
     """
 
     def __init__(
@@ -167,7 +168,11 @@ class EventManager:
         return None
 
     def _emit_event(self) -> Event:
-        """Build an Event from the current best observation."""
+        """Build an Event from the current best observation.
+
+        ``person_name`` may be present while status is unauthorised when the
+        match passes recognition but not authorisation confidence.
+        """
         status = (
             "authorised"
             if (

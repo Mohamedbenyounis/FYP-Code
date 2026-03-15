@@ -114,6 +114,25 @@ Notes:
 - This shape intentionally prepares for a future `ClipRecorder` beside
      `SnapshotRecorder` without redesigning orchestration.
 
+## Iteration 5 Data Flow  (Dashboard MVP)
+
+```
+  Process A: app.main (pipeline writer)
+       └─ EventManager -> SQLiteEventRepository writes events + snapshot_path
+
+  Process B: app.web_run (Flask dashboard reader/admin)
+       ├─ Login (session auth) -> AdminRepository (admin_users)
+       ├─ Dashboard/Event/Person pages -> repositories in db/repo.py
+       ├─ Enrollment form -> services/enrollment_service.py
+       └─ Snapshot endpoint /events/<id>/snapshot
+             └─ serves only files under data/snapshots/
+```
+
+Notes:
+- Dashboard and pipeline are intentionally separate processes.
+- Flask routes contain no SQL; all data access stays in `db/repo.py`.
+- Snapshot serving is constrained to the snapshots directory and keyed by event id.
+
 ### Enrollment Flow
 
 ```
@@ -171,7 +190,7 @@ detection and recognition results are logged to the console.  No
 | 2 – SQLite | `db/repo.py`, `db/migrations.py`, `enroll.py` | pipeline API, camera |
 | 3 – Events | `core/event_manager.py`, `db/repo.py`, `main.py` | pipeline, camera, enroll |
 | 4 – Snapshots | `recording/snapshot_recorder.py`, `db/repo.py`, `main.py` | event manager, ML pipeline |
-| 5 – Dashboard | `web/` reads DB via `repo.py` | pipeline (separate process) |
+| 5 – Dashboard | `web/`, `web_run.py`, `services/enrollment_service.py` | pipeline (separate process) |
 | 6 – Tracking | `tracking/` wraps pipeline | pipeline API unchanged |
 | 7 – RTSP | `camera/rtsp.py` implements same ABC | pipeline, main |
 | 8 – Alerts | `services/alert_service.py` subscribes to events | everything else |
@@ -240,5 +259,11 @@ app/
 │   ├── logging_service.py  # Centralised logger
 │   ├── alert_service.py    # Stub — Iteration 8
 │   └── email_service.py    # Stub — Iteration 8
-└── web/                    # Stub — Iteration 5
+├── web/
+│   ├── app_factory.py      # Flask app factory
+│   ├── auth.py             # Session auth helpers
+│   ├── routes.py           # Dashboard routes (repo-only data access)
+│   ├── templates/          # Dashboard HTML templates
+│   └── static/             # Dashboard CSS
+└── web_run.py              # Dashboard entry point (separate process)
 ```

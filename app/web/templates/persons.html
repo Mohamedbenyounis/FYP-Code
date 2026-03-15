@@ -1,0 +1,39 @@
+{% extends 'base.html' %}
+{% block title %}Persons - SecureVision{% endblock %}
+{% block content %}
+<section class="card">
+  <h2>Persons</h2>
+  <p><a class="button-link" href="{{ url_for('web.enroll') }}">Add Person (Enroll)</a></p>
+
+  {% if persons %}
+    <table>
+      <thead>
+        <tr>
+          <th>ID</th>
+          <th>Name</th>
+          <th>Created At</th>
+          <th>Embeddings</th>
+          <th>Action</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for person in persons %}
+          <tr>
+            <td>{{ person.person_id }}</td>
+            <td>{{ person.name }}</td>
+            <td>{{ person.created_at }}</td>
+            <td>{{ person.embedding_count }}</td>
+            <td>
+              <form method="post" action="{{ url_for('web.delete_person', person_id=person.person_id) }}" onsubmit="return confirm('Delete this person?');">
+                <button type="submit" class="danger">Delete</button>
+              </form>
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <p>No enrolled persons found.</p>
+  {% endif %}
+</section>
+{% endblock %}

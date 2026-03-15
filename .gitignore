@@ -20,6 +20,8 @@ env/
 
 # Data files
 data/db/*.db
+data/db/*.sqlite
+data/db/*.sqlite-*
 data/snapshots/*
 data/clips/*
 !data/db/.gitkeep

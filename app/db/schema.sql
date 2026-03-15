@@ -47,3 +47,13 @@ CREATE TABLE IF NOT EXISTS events (
 
 CREATE INDEX IF NOT EXISTS idx_events_status     ON events(status);
 CREATE INDEX IF NOT EXISTS idx_events_created_at ON events(created_at);
+
+-- =====================================================================
+-- Dashboard admin users  (Iteration 5)
+-- =====================================================================
+CREATE TABLE IF NOT EXISTS admin_users (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    username      TEXT    NOT NULL UNIQUE,
+    password_hash TEXT    NOT NULL,            -- werkzeug.security hash
+    created_at    TEXT    NOT NULL             -- ISO 8601 (UTC)
+);

@@ -129,6 +129,31 @@ class SQLitePersonRepository:
         row = cursor.fetchone()
         return self._row_to_person(row) if row else None
 
+    def list_person_summaries(self) -> List[dict]:
+        """
+        Return safe person metadata for dashboard display.
+
+        This intentionally excludes raw embedding blob data.
+        """
+        cursor = self._conn.execute(
+            "SELECT p.id, p.name, p.created_at, "
+            "       COUNT(pe.id) AS embedding_count "
+            "FROM persons p "
+            "LEFT JOIN person_embeddings pe ON pe.person_id = p.id "
+            "GROUP BY p.id, p.name, p.created_at "
+            "ORDER BY p.id"
+        )
+        rows = cursor.fetchall()
+        return [
+            {
+                "person_id": row[0],
+                "name": row[1],
+                "created_at": row[2],
+                "embedding_count": row[3],
+            }
+            for row in rows
+        ]
+
     # ------------------------------------------------------------------ write
 
     def add_person(self, name: str, embedding: np.ndarray) -> EnrolledPerson:
@@ -177,6 +202,13 @@ class SQLitePersonRepository:
         )
         self._conn.commit()
         return cursor.rowcount > 0
+
+    # ------------------------------------------------------------------ helpers
+
+    def count_persons(self) -> int:
+        """Return total number of enrolled persons."""
+        cursor = self._conn.execute("SELECT COUNT(*) FROM persons")
+        return cursor.fetchone()[0]
 
     # ------------------------------------------------------------------ helpers
 
@@ -430,3 +462,84 @@ class SQLiteEventRepository:
         )
         self._conn.commit()
         return cursor.rowcount > 0
+
+    def get_event_by_id(self, event_id: str) -> Optional[Event]:
+        """Fetch a single event by its UUID primary key."""
+        cursor = self._conn.execute(
+            "SELECT id, status, person_name, person_id, score, "
+            "       bbox_json, snapshot_path, clip_path, created_at "
+            "FROM events WHERE id = ?",
+            (event_id,),
+        )
+        row = cursor.fetchone()
+        if row is None:
+            return None
+        return Event(
+            event_id=row[0],
+            status=row[1],
+            person_name=row[2],
+            person_id=row[3],
+            score=row[4],
+            bbox_json=row[5],
+            snapshot_path=row[6],
+            clip_path=row[7],
+            created_at=row[8],
+        )
+
+    def count_events(self, status: Optional[str] = None) -> int:
+        """Return total event count, optionally filtered by status."""
+        if status is not None:
+            cursor = self._conn.execute(
+                "SELECT COUNT(*) FROM events WHERE status = ?", (status,)
+            )
+        else:
+            cursor = self._conn.execute("SELECT COUNT(*) FROM events")
+        return cursor.fetchone()[0]
+
+
+# =====================================================================
+# Admin user repository  (Iteration 5 — Dashboard auth)
+# =====================================================================
+
+class AdminRepository:
+    """
+    Repository for ``admin_users`` table.
+
+    All dashboard authentication SQL lives here.
+    Routes interact only via the public methods below.
+    """
+
+    def __init__(self, conn: sqlite3.Connection) -> None:
+        self._conn = conn
+
+    def get_by_username(self, username: str) -> Optional[dict]:
+        """
+        Return a minimal admin record or ``None`` if not found.
+
+        Returned dict keys: ``id``, ``username``, ``password_hash``.
+        Raw embedding blobs or other internals are never exposed.
+        """
+        cursor = self._conn.execute(
+            "SELECT id, username, password_hash "
+            "FROM admin_users WHERE username = ?",
+            (username,),
+        )
+        row = cursor.fetchone()
+        if row is None:
+            return None
+        return {"id": row[0], "username": row[1], "password_hash": row[2]}
+
+    def add_admin(self, username: str, password_hash: str) -> None:
+        """Insert a new admin user.  ``password_hash`` must be pre-hashed."""
+        now_iso = datetime.now(timezone.utc).isoformat()
+        self._conn.execute(
+            "INSERT INTO admin_users (username, password_hash, created_at) "
+            "VALUES (?, ?, ?)",
+            (username, password_hash, now_iso),
+        )
+        self._conn.commit()
+
+    def count(self) -> int:
+        """Return total number of admin users."""
+        cursor = self._conn.execute("SELECT COUNT(*) FROM admin_users")
+        return cursor.fetchone()[0]

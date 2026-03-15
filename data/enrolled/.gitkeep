@@ -1,2 +1,2 @@
-# Enrolled embeddings (.npy files) will be stored here.
-# See docs/SETUP.md for instructions.
+# Enrolled data directory — identities are now stored in SQLite.
+# See docs/SETUP.md for enrollment instructions.

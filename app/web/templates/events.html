@@ -1,0 +1,55 @@
+{% extends 'base.html' %}
+{% block title %}Events - SecureVision{% endblock %}
+{% block content %}
+<section class="card">
+  <h2>Events</h2>
+  <form method="get" class="inline-form">
+    <label>Status
+      <select name="status">
+        <option value="" {% if not status_filter %}selected{% endif %}>All</option>
+        <option value="authorised" {% if status_filter == 'authorised' %}selected{% endif %}>Authorised</option>
+        <option value="unauthorised" {% if status_filter == 'unauthorised' %}selected{% endif %}>Unauthorised</option>
+      </select>
+    </label>
+    <button type="submit">Filter</button>
+  </form>
+
+  {% if events %}
+    <table>
+      <thead>
+        <tr>
+          <th>Created</th>
+          <th>Status</th>
+          <th>Person</th>
+          <th>Score</th>
+          <th>Snapshot</th>
+          <th>Details</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for event in events %}
+          <tr>
+            <td>{{ event.created_at }}</td>
+            <td>{{ event.status }}</td>
+            <td>
+              {% if event.display_state == 'low_confidence_match' %}
+                <strong>{{ event.person_name }}</strong>
+                <div class="subtle">Matched but below authorisation threshold</div>
+              {% elif event.display_state == 'authorised_match' %}
+                {{ event.person_name }}
+              {% else %}
+                Unknown
+              {% endif %}
+            </td>
+            <td>{{ '%.3f'|format(event.score or 0.0) }}</td>
+            <td>{{ 'Yes' if event.snapshot_path else 'No' }}</td>
+            <td><a href="{{ url_for('web.event_detail', event_id=event.event_id) }}">View</a></td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <p>No events found.</p>
+  {% endif %}
+</section>
+{% endblock %}

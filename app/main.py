@@ -66,7 +66,7 @@ def main() -> int:
         confirm_k=config.EVENT_CONFIRM_MIN_K,
         lost_frames=config.EVENT_LOST_FRAMES,
         cooldown_seconds=config.EVENT_COOLDOWN_SECONDS,
-        score_threshold=config.EVENT_SCORE_THRESHOLD,
+        score_threshold=config.AUTHORISATION_THRESHOLD,
     )
     log.info(
         "EventManager: window=%d  confirm=%d  lost=%d  cooldown=%.1fs",
@@ -179,9 +179,9 @@ def main() -> int:
                     snapshot_path = snapshot_recorder.on_event(event, frame)
                     if snapshot_path is not None:
                         try:
-                            rel_path = str(snapshot_path.relative_to(config.BASE_DIR))
+                            rel_path = snapshot_path.relative_to(config.BASE_DIR).as_posix()
                         except ValueError:
-                            rel_path = str(snapshot_path)
+                            rel_path = snapshot_path.as_posix()
 
                         updated = event_repo.update_event_snapshot(
                             event.event_id,

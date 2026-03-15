@@ -1,5 +1,48 @@
 # SecureVision Build Log
 
+## 2026-03 — Iteration 5: Local Flask Dashboard MVP (In Progress)
+
+### Purpose
+Add a local-first browser dashboard without redesigning the camera/ML/event
+pipeline.
+
+### What Changed So Far
+- Added `admin_users` table explicitly in `app/db/schema.sql`.
+- Added idempotent admin bootstrap in `app/db/migrations.py`.
+- Removed hardcoded default dashboard credentials; bootstrap admin now
+  requires `SV_BOOTSTRAP_ADMIN_USERNAME` and `SV_BOOTSTRAP_ADMIN_PASSWORD`.
+- Normalized snapshot paths to POSIX form on write (`app/main.py`) and added
+  separator-normalized resolving in dashboard route (`app/web/routes.py`) to
+  avoid Windows path separator issues.
+- Added dashboard-focused repository methods in `app/db/repo.py`:
+  `count_persons`, `list_person_summaries`, `get_event_by_id`, `count_events`,
+  and `AdminRepository`.
+- Added dashboard config in `app/config.py`:
+  `SV_DASHBOARD_HOST`, `SV_DASHBOARD_PORT`, `SV_FLASK_SECRET_KEY`.
+- Added shared enrollment orchestration in
+  `app/services/enrollment_service.py` for Flask + CLI reuse.
+- Implemented Flask dashboard core:
+  `app/web/app_factory.py`, `app/web/auth.py`, `app/web/routes.py`.
+- Added templates and CSS in `app/web/templates/` and `app/web/static/style.css`.
+- Added dashboard entry point in `app/web_run.py`.
+- Added `tests/test_dashboard.py` covering auth, events, event detail,
+  persons page, and snapshot path restrictions.
+- Clarified two-threshold semantics without DB schema changes:
+  recognition match threshold and separate authorisation threshold.
+- Added explicit config names `RECOGNITION_MATCH_THRESHOLD` and
+  `AUTHORISATION_THRESHOLD` with backward-compatible aliases.
+- Updated dashboard presentation to derive display-only match state from
+  existing event fields (`status`, `person_name`, `score`) and show explicit
+  low-confidence explanation for named but unauthorised events.
+- Added tests for threshold edge cases and non-misleading template rendering.
+
+### Scope Guardrails Kept
+- No clips added.
+- No ML pipeline redesign.
+- No SQL in Flask routes.
+- Snapshot serving restricted to snapshots directory only.
+- Persons page uses safe metadata only (no raw embedding blobs).
+
 ## 2026-03 — Iteration 4: Event Snapshot Evidence (Complete)
 
 ### Purpose

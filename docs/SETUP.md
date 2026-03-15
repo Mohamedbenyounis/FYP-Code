@@ -76,6 +76,42 @@ python -m app.main
 
 Press **Ctrl+C** to stop.
 
+## 5b. Run Dashboard (Iteration 5)
+
+Run the dashboard in a separate terminal/process:
+
+```bash
+python -m app.web_run
+```
+
+Default URL:
+
+```text
+http://127.0.0.1:5000
+```
+
+Bootstrap admin is created only when both env vars are provided:
+
+```text
+SV_BOOTSTRAP_ADMIN_USERNAME
+SV_BOOTSTRAP_ADMIN_PASSWORD
+```
+
+Example (PowerShell):
+
+```powershell
+$env:SV_BOOTSTRAP_ADMIN_USERNAME = "admin"
+$env:SV_BOOTSTRAP_ADMIN_PASSWORD = "change-this-now"
+python -m app.web_run
+```
+
+If these variables are not set and `admin_users` is empty, login will remain
+disabled until you create the first admin.
+
+The dashboard and pipeline are intentionally separate:
+- `app.main` handles camera + ML + event writing.
+- `app.web_run` handles local browser UI + admin actions.
+
 ## 6. Run Tests
 
 ```bash
@@ -118,6 +154,11 @@ All settings live in `app/config.py` and can be overridden via env vars:
 | `SV_SNAPSHOT_JPEG_QUALITY` | `90` | JPEG quality (1-100) for snapshot files |
 | `SV_SNAPSHOT_SUBDIR_BY_DATE` | `true` | Save snapshots under `YYYY-MM-DD` subdirectory |
 | `SV_SAVE_RAW_SNAPSHOT` | `false` | Save unannotated frame even if bbox exists |
+| `SV_DASHBOARD_HOST` | `127.0.0.1` | Flask dashboard bind host |
+| `SV_DASHBOARD_PORT` | `5000` | Flask dashboard bind port |
+| `SV_FLASK_SECRET_KEY` | `securevision-dev-secret` | Session secret key |
+| `SV_BOOTSTRAP_ADMIN_USERNAME` | *(unset)* | Initial admin username (first bootstrap only) |
+| `SV_BOOTSTRAP_ADMIN_PASSWORD` | *(unset)* | Initial admin password (first bootstrap only) |
 
 ## Inspect Events  (Iteration 3)
 
@@ -148,6 +189,10 @@ To inspect recent linked snapshots:
 sqlite3 data/db/securevision.sqlite \
   "SELECT id, status, snapshot_path, created_at FROM events ORDER BY created_at DESC LIMIT 10;"
 ```
+
+Dashboard snapshot display uses `/events/<event_id>/snapshot`, which validates
+the DB path and serves files only from `data/snapshots/` to prevent traversal
+and arbitrary file reads.
 
 ## Troubleshooting
 

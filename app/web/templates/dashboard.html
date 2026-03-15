@@ -1,0 +1,61 @@
+{% extends 'base.html' %}
+{% block title %}Dashboard - SecureVision{% endblock %}
+{% block content %}
+<section class="cards">
+  <article class="card stat">
+    <h2>Total Persons</h2>
+    <p>{{ total_persons }}</p>
+  </article>
+  <article class="card stat">
+    <h2>Total Events</h2>
+    <p>{{ total_events }}</p>
+  </article>
+  <article class="card stat">
+    <h2>Authorised</h2>
+    <p>{{ authorised_count }}</p>
+  </article>
+  <article class="card stat">
+    <h2>Unauthorised</h2>
+    <p>{{ unauthorised_count }}</p>
+  </article>
+</section>
+
+<section class="card">
+  <h2>Recent Events</h2>
+  {% if recent_events %}
+    <table>
+      <thead>
+        <tr>
+          <th>Created</th>
+          <th>Status</th>
+          <th>Person</th>
+          <th>Score</th>
+          <th>Details</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for event in recent_events %}
+          <tr>
+            <td>{{ event.created_at }}</td>
+            <td>{{ event.status }}</td>
+            <td>
+              {% if event.display_state == 'low_confidence_match' %}
+                <strong>{{ event.person_name }}</strong>
+                <span class="badge warn">Low-confidence match</span>
+              {% elif event.display_state == 'authorised_match' %}
+                {{ event.person_name }}
+              {% else %}
+                Unknown
+              {% endif %}
+            </td>
+            <td>{{ '%.3f'|format(event.score or 0.0) }}</td>
+            <td><a href="{{ url_for('web.event_detail', event_id=event.event_id) }}">View</a></td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <p>No events yet.</p>
+  {% endif %}
+</section>
+{% endblock %}

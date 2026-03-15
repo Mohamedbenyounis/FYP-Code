@@ -1,0 +1,33 @@
+{% extends 'base.html' %}
+{% block title %}Event Detail - SecureVision{% endblock %}
+{% block content %}
+<section class="card">
+  <h2>Event {{ event.event_id }}</h2>
+  {% if event.display_state == 'low_confidence_match' %}
+    <p class="notice warn">Matched identity but unauthorised (low confidence).</p>
+  {% elif event.display_state == 'authorised_match' %}
+    <p class="notice ok">Matched identity and authorised.</p>
+  {% else %}
+    <p class="notice">No recognised identity match.</p>
+  {% endif %}
+  <dl class="meta-grid">
+    <dt>Created At</dt><dd>{{ event.created_at }}</dd>
+    <dt>Status</dt><dd>{{ event.status }}</dd>
+    <dt>Person</dt><dd>{{ event.person_name or 'Unknown' }}</dd>
+    <dt>Person ID</dt><dd>{{ event.person_id or 'N/A' }}</dd>
+    <dt>Score</dt><dd>{{ '%.3f'|format(event.score or 0.0) }}</dd>
+    <dt>Decision Reason</dt><dd>{{ event.decision_reason }}</dd>
+    <dt>Bounding Box JSON</dt><dd><code>{{ event.bbox_json or 'N/A' }}</code></dd>
+    <dt>Snapshot Path</dt><dd>{{ event.snapshot_path or 'N/A' }}</dd>
+  </dl>
+</section>
+
+<section class="card">
+  <h2>Snapshot</h2>
+  {% if snapshot_available %}
+    <img class="snapshot" src="{{ url_for('web.event_snapshot', event_id=event.event_id) }}" alt="Event snapshot">
+  {% else %}
+    <p>Snapshot not available for this event.</p>
+  {% endif %}
+</section>
+{% endblock %}

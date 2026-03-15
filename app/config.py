@@ -43,6 +43,15 @@ def _env_float(key: str, default: float) -> float:
         return default
 
 
+def _env_optional(key: str) -> str | None:
+    """Read an optional env var; return None when unset/blank."""
+    val = os.getenv(key)
+    if val is None:
+        return None
+    stripped = val.strip()
+    return stripped if stripped else None
+
+
 # =============================================================================
 # DIRECTORY PATHS
 # =============================================================================
@@ -94,7 +103,12 @@ PREVIEW_WINDOW_NAME: str = _env("SV_PREVIEW_WINDOW_NAME", "SecureVision")
 # =============================================================================
 
 DETECTION_CONF_THRESH: float = _env_float("SV_DETECTION_CONF_THRESH", 0.45)
-RECOGNITION_SIM_THRESH: float = _env_float("SV_RECOGNITION_SIM_THRESH", 0.25)
+RECOGNITION_MATCH_THRESHOLD: float = _env_float(
+    "SV_RECOGNITION_MATCH_THRESHOLD",
+    _env_float("SV_RECOGNITION_SIM_THRESH", 0.25),
+)
+# Backward-compatible alias (prefer RECOGNITION_MATCH_THRESHOLD in new code)
+RECOGNITION_SIM_THRESH: float = RECOGNITION_MATCH_THRESHOLD
 NMS_IOU_THRESH: float = _env_float("SV_NMS_IOU_THRESH", 0.4)
 MAX_GALLERY_EMBEDDINGS: int = _env_int("SV_MAX_GALLERY_EMBEDDINGS", 5)
 
@@ -160,11 +174,27 @@ EVENT_LOST_FRAMES: int = _env_int("SV_EVENT_LOST_FRAMES", 5)
 EVENT_COOLDOWN_SECONDS: float = _env_float("SV_EVENT_COOLDOWN_SECONDS", 10.0)
 """Seconds to stay in COOLDOWN after an event closes (prevent re-fire)."""
 
-EVENT_SCORE_THRESHOLD: float = _env_float("SV_EVENT_SCORE_THRESHOLD", 0.4)
-"""Min cosine similarity to tag an event as 'authorised'."""
+AUTHORISATION_THRESHOLD: float = _env_float(
+    "SV_AUTHORISATION_THRESHOLD",
+    _env_float("SV_EVENT_SCORE_THRESHOLD", 0.4),
+)
+"""Min cosine similarity to mark an event as authorised."""
+
+# Backward-compatible alias (prefer AUTHORISATION_THRESHOLD in new code)
+EVENT_SCORE_THRESHOLD: float = AUTHORISATION_THRESHOLD
 
 # =============================================================================
 # LOGGING
 # =============================================================================
 
 LOG_LEVEL: str = _env("SV_LOG_LEVEL", "INFO")
+
+# =============================================================================
+# DASHBOARD (Iteration 5)
+# =============================================================================
+
+DASHBOARD_HOST: str = _env("SV_DASHBOARD_HOST", "127.0.0.1")
+DASHBOARD_PORT: int = _env_int("SV_DASHBOARD_PORT", 5000)
+FLASK_SECRET_KEY: str = _env("SV_FLASK_SECRET_KEY", "securevision-dev-secret")
+BOOTSTRAP_ADMIN_USERNAME: str | None = _env_optional("SV_BOOTSTRAP_ADMIN_USERNAME")
+BOOTSTRAP_ADMIN_PASSWORD: str | None = _env_optional("SV_BOOTSTRAP_ADMIN_PASSWORD")

@@ -12,7 +12,7 @@ from unittest.mock import patch
 import numpy as np
 import pytest
 
-from app.core.models import BoundingBox, Detection
+from app.core.models import BoundingBox, Detection, EnrolledPerson
 from app.ml.detector_scrfd import ModelNotFoundError, SCRFDDetector, select_largest_face
 from app.ml.recogniser_arcface import ArcFaceRecogniser
 
@@ -104,4 +104,25 @@ class TestBoundingBox:
         assert b.area == 10000
         assert b.center == (60, 70)
         assert b.as_tuple() == (10, 20, 110, 120)
+
+
+class TestRecognitionThresholdLogic:
+    def test_below_match_threshold_returns_unknown(self) -> None:
+        # Build recogniser without loading ONNX model for pure compare logic.
+        recogniser = ArcFaceRecogniser.__new__(ArcFaceRecogniser)
+        recogniser.similarity_threshold = 0.25
+
+        probe = np.array([1.0, 0.0], dtype=np.float32)
+        enrolled = [
+            EnrolledPerson(
+                person_id=1,
+                name="Alice",
+                embedding=np.array([0.2, 0.0], dtype=np.float32),
+            )
+        ]
+
+        result = recogniser.compare(probe, enrolled)
+        assert result.score == pytest.approx(0.2)
+        assert result.is_match is False
+        assert result.name is None
 

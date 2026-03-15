@@ -1,0 +1,17 @@
+{% extends 'base.html' %}
+{% block title %}Enroll Person - SecureVision{% endblock %}
+{% block content %}
+<section class="card">
+  <h2>Enroll Person</h2>
+  <p>Upload one clear face image and provide a display name.</p>
+  <form method="post" enctype="multipart/form-data" class="form-grid">
+    <label>Name
+      <input type="text" name="name" required>
+    </label>
+    <label>Image
+      <input type="file" name="image" accept="image/*" required>
+    </label>
+    <button type="submit">Enroll</button>
+  </form>
+</section>
+{% endblock %}

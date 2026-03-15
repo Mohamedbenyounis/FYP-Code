@@ -219,7 +219,7 @@ class FacePipeline:
                 else:
                     result.message = (
                         f"Unknown face score={recognition.score:.3f} "
-                        f"(thresh={config.RECOGNITION_SIM_THRESH})"
+                        f"(thresh={config.RECOGNITION_MATCH_THRESHOLD})"
                     )
             except Exception as exc:  # noqa: BLE001
                 self._log.error("Recognition error: %s", exc)

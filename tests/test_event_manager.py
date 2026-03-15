@@ -111,7 +111,7 @@ class TestConfirmation:
         em = _make_em(window_n=5, confirm_k=3)
         events = []
         for _ in range(3):
-            ev = em.update(_obs(face=True, name=None, score=0.0))
+            ev = em.update(_obs(face=True, name=None, score=0.20))
             if ev is not None:
                 events.append(ev)
 
@@ -129,6 +129,19 @@ class TestConfirmation:
 
         assert len(events) == 1
         assert events[0].status == "unauthorised"
+        assert events[0].person_name == "Alice"
+
+    def test_above_both_thresholds_is_authorised(self) -> None:
+        em = _make_em(window_n=5, confirm_k=3, score_threshold=0.4)
+        events = []
+        for _ in range(3):
+            ev = em.update(_obs(face=True, name="Alice", score=0.8))
+            if ev is not None:
+                events.append(ev)
+
+        assert len(events) == 1
+        assert events[0].status == "authorised"
+        assert events[0].person_name == "Alice"
 
     def test_all_absent_returns_to_idle(self) -> None:
         """If all faces in window disappear while CONFIRMING → back to IDLE."""
