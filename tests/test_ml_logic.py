@@ -32,7 +32,7 @@ def _det(x1: int, y1: int, x2: int, y2: int, conf: float,
 
 
 def _random_kps() -> np.ndarray:
-    """5-point keypoints within a 640×640 frame."""
+    """5-point keypoints within a 640x640 frame."""
     return np.array([
         [200, 180], [280, 180], [240, 220], [210, 260], [270, 260]
     ], dtype=np.float32)
@@ -256,7 +256,7 @@ class TestPrepareFrameForDetection:
         from app.ml.preprocess import prepare_frame_for_detection
         frame = np.full((480, 640, 3), 200, dtype=np.uint8)
         tensor, _, _ = prepare_frame_for_detection(frame)
-        # (200 - 127.5) / 128.0 ≈ 0.566
+        # (200 - 127.5) / 128.0 ~ 0.566
         assert tensor.max() < 1.0
         assert tensor.min() >= -1.0
 
@@ -377,7 +377,8 @@ class TestPipelineDetectionFrameSelection:
 
 
 # ===================================================================
-# Decision rule  (authorised / unknown — via FrameResult)
+# Decision rule  (authorised / unknown -- via FrameResult)
+# Updated for Iteration 8: recognitions list + backward-compat
 # ===================================================================
 
 class TestDecisionRule:
@@ -385,14 +386,18 @@ class TestDecisionRule:
     Verify the corrected decision rule:
       authorised iff primary_detection exists AND is_match AND score >= threshold
       unknown    iff no primary OR no recognition OR score < threshold
+
+    Updated for Iteration 8: recognitions list instead of single recognition
+    field, with backward-compatible result.recognition property.
     """
 
     def test_authorised(self) -> None:
-        """Primary + match + score above threshold → authorised."""
+        """Primary + match + score above threshold -> authorised."""
+        det = _det(0, 0, 100, 100, 0.8)
         result = FrameResult(
-            detections=[_det(0, 0, 100, 100, 0.8)],
-            primary_detection=_det(0, 0, 100, 100, 0.8),
-            recognition=RecognitionResult(name="Alice", score=0.6, is_match=True),
+            detections=[det],
+            recognitions=[RecognitionResult(name="Alice", score=0.6, is_match=True)],
+            primary_detection=det,
             ml_enabled=True,
             detection_enabled=True,
             recognition_enabled=True,
@@ -402,11 +407,12 @@ class TestDecisionRule:
         assert result.recognition.score >= 0.25
 
     def test_unknown_no_match(self) -> None:
-        """Primary exists but score below threshold → unknown."""
+        """Primary exists but score below threshold -> unknown."""
+        det = _det(0, 0, 100, 100, 0.8)
         result = FrameResult(
-            detections=[_det(0, 0, 100, 100, 0.8)],
-            primary_detection=_det(0, 0, 100, 100, 0.8),
-            recognition=RecognitionResult(name=None, score=0.1, is_match=False),
+            detections=[det],
+            recognitions=[RecognitionResult(name=None, score=0.1, is_match=False)],
+            primary_detection=det,
             ml_enabled=True,
             detection_enabled=True,
             recognition_enabled=True,
@@ -415,7 +421,7 @@ class TestDecisionRule:
         assert result.recognition.is_match is False
 
     def test_unknown_no_primary(self) -> None:
-        """No primary detection → unknown regardless of recognition."""
+        """No primary detection -> unknown regardless of recognition."""
         result = FrameResult(
             detections=[],
             primary_detection=None,
@@ -424,13 +430,15 @@ class TestDecisionRule:
             recognition_enabled=True,
         )
         assert result.primary_detection is None
+        assert result.recognition is None
 
     def test_unknown_no_recognition(self) -> None:
-        """Primary exists but no recognition result → unknown."""
+        """Primary exists but empty recognitions -> unknown."""
+        det = _det(0, 0, 100, 100, 0.8)
         result = FrameResult(
-            detections=[_det(0, 0, 100, 100, 0.8)],
-            primary_detection=_det(0, 0, 100, 100, 0.8),
-            recognition=None,
+            detections=[det],
+            recognitions=[],
+            primary_detection=det,
             ml_enabled=True,
             detection_enabled=True,
             recognition_enabled=True,
@@ -438,13 +446,16 @@ class TestDecisionRule:
         assert result.recognition is None
 
     def test_multiple_detections_primary_authorised(self) -> None:
-        """Multiple detections — primary (largest) recognised → authorised."""
+        """Multiple detections -- primary (largest) recognised -> authorised."""
         dets = [_det(0, 0, 50, 50, 0.9), _det(0, 0, 200, 200, 0.7)]
         primary = max(dets, key=lambda d: d.bbox.area)
         result = FrameResult(
             detections=dets,
+            recognitions=[
+                RecognitionResult(name=None, score=0.1, is_match=False),
+                RecognitionResult(name="Bob", score=0.5, is_match=True),
+            ],
             primary_detection=primary,
-            recognition=RecognitionResult(name="Bob", score=0.5, is_match=True),
             ml_enabled=True,
             detection_enabled=True,
             recognition_enabled=True,
@@ -452,3 +463,150 @@ class TestDecisionRule:
         assert len(result.detections) == 2
         assert result.primary_detection is primary
         assert result.recognition.is_match is True
+        assert result.recognition.name == "Bob"
+
+
+# ===================================================================
+# Multi-face detection  (Iteration 7)
+# ===================================================================
+
+class TestMultiFaceDetection:
+
+    def test_multiple_detections_preserved(self) -> None:
+        """All detections survive in FrameResult.detections."""
+        dets = [_det(0, 0, 50, 50, 0.9), _det(100, 100, 200, 200, 0.7),
+                _det(300, 300, 400, 400, 0.5)]
+        result = FrameResult(detections=dets, ml_enabled=True)
+        assert len(result.detections) == 3
+
+    def test_detection_count_property(self) -> None:
+        """detection_count returns len(detections)."""
+        dets = [_det(0, 0, 50, 50, 0.9), _det(100, 100, 200, 200, 0.7)]
+        result = FrameResult(detections=dets, ml_enabled=True)
+        assert result.detection_count == 2
+
+    def test_detection_count_empty(self) -> None:
+        result = FrameResult(detections=[], ml_enabled=True)
+        assert result.detection_count == 0
+
+    def test_primary_is_largest_by_area(self) -> None:
+        """select_largest_face picks the biggest bbox."""
+        from app.ml.detector_scrfd import select_largest_face
+        small = _det(0, 0, 10, 10, 0.9)    # area 100
+        medium = _det(0, 0, 50, 50, 0.5)   # area 2500
+        big = _det(0, 0, 200, 200, 0.3)    # area 40000
+        assert select_largest_face([small, medium, big]) is big
+
+    def test_single_detection_is_primary(self) -> None:
+        from app.ml.detector_scrfd import select_largest_face
+        only = _det(10, 10, 100, 100, 0.8)
+        assert select_largest_face([only]) is only
+
+
+# ===================================================================
+# Multi-face recognition  (Iteration 8)
+# ===================================================================
+
+class TestMultiFaceRecognition:
+
+    def test_recognitions_aligned_with_detections(self) -> None:
+        """recognitions[i] corresponds to detections[i]."""
+        d0 = _det(0, 0, 50, 50, 0.9)
+        d1 = _det(100, 100, 200, 200, 0.7)
+        d2 = _det(300, 300, 400, 400, 0.5)
+        r0 = RecognitionResult(name="Alice", score=0.8, is_match=True)
+        r1 = RecognitionResult(name=None, score=0.1, is_match=False)
+        r2 = RecognitionResult(name="Bob", score=0.6, is_match=True)
+        result = FrameResult(
+            detections=[d0, d1, d2],
+            recognitions=[r0, r1, r2],
+            primary_detection=d2,  # largest by area
+            ml_enabled=True,
+        )
+        assert result.recognitions[0] is r0
+        assert result.recognitions[1] is r1
+        assert result.recognitions[2] is r2
+
+    def test_primary_recognition_returns_correct_result(self) -> None:
+        """primary_recognition returns the recognition for the primary face."""
+        d0 = _det(0, 0, 50, 50, 0.9)
+        d1 = _det(0, 0, 200, 200, 0.7)  # largest
+        r0 = RecognitionResult(name="Alice", score=0.8, is_match=True)
+        r1 = RecognitionResult(name="Bob", score=0.6, is_match=True)
+        result = FrameResult(
+            detections=[d0, d1],
+            recognitions=[r0, r1],
+            primary_detection=d1,
+            ml_enabled=True,
+        )
+        assert result.primary_recognition is r1
+        assert result.primary_recognition.name == "Bob"
+
+    def test_backward_compat_recognition_property(self) -> None:
+        """result.recognition aliases primary_recognition."""
+        det = _det(10, 10, 100, 100, 0.9)
+        rec = RecognitionResult(name="Carol", score=0.7, is_match=True)
+        result = FrameResult(
+            detections=[det],
+            recognitions=[rec],
+            primary_detection=det,
+            ml_enabled=True,
+        )
+        assert result.recognition is result.primary_recognition
+        assert result.recognition.name == "Carol"
+
+    def test_no_primary_gives_none_recognition(self) -> None:
+        """No primary detection -> recognition is None."""
+        result = FrameResult(
+            detections=[_det(0, 0, 50, 50, 0.9)],
+            recognitions=[RecognitionResult(name="X", score=0.9, is_match=True)],
+            primary_detection=None,
+            ml_enabled=True,
+        )
+        assert result.primary_recognition is None
+        assert result.recognition is None
+
+    def test_empty_recognitions_gives_none(self) -> None:
+        """If recognitions list is empty, primary_recognition is None."""
+        det = _det(0, 0, 100, 100, 0.9)
+        result = FrameResult(
+            detections=[det],
+            recognitions=[],
+            primary_detection=det,
+            ml_enabled=True,
+        )
+        assert result.primary_recognition is None
+
+    def test_unknown_faces_in_recognitions(self) -> None:
+        """Unknown faces have is_match=False in recognition list."""
+        d0 = _det(0, 0, 50, 50, 0.9)
+        d1 = _det(100, 100, 200, 200, 0.7)
+        r0 = RecognitionResult(name=None, score=0.15, is_match=False)
+        r1 = RecognitionResult(name=None, score=0.22, is_match=False)
+        result = FrameResult(
+            detections=[d0, d1],
+            recognitions=[r0, r1],
+            primary_detection=d1,
+            ml_enabled=True,
+        )
+        assert all(not r.is_match for r in result.recognitions)
+
+    def test_mixed_known_unknown(self) -> None:
+        """Mix of known and unknown faces, primary is known."""
+        d0 = _det(0, 0, 50, 50, 0.9)
+        d1 = _det(0, 0, 200, 200, 0.7)  # largest = primary
+        d2 = _det(300, 300, 400, 400, 0.5)
+        r0 = RecognitionResult(name="Alice", score=0.8, is_match=True)
+        r1 = RecognitionResult(name="Bob", score=0.6, is_match=True)
+        r2 = RecognitionResult(name=None, score=0.1, is_match=False)
+        result = FrameResult(
+            detections=[d0, d1, d2],
+            recognitions=[r0, r1, r2],
+            primary_detection=d1,
+            ml_enabled=True,
+        )
+        known = [r for r in result.recognitions if r.is_match]
+        unknown = [r for r in result.recognitions if not r.is_match]
+        assert len(known) == 2
+        assert len(unknown) == 1
+        assert result.primary_recognition.name == "Bob"

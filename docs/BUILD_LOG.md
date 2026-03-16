@@ -373,3 +373,76 @@ docs/BUILD_LOG.md
 
 ### Next Steps
 - Implement Iteration 1: Core ML pipeline on webcam
+
+---
+
+## 2026-03 — Iteration 7: Multi-Face Detection Plumbing (Complete)
+
+### Purpose
+Extend the single-face runtime to detect and preserve **all** faces in a frame.
+This prepares the architecture for future multi-face recognition/tracking
+while maintaining backward compatibility for the existing single-face EventManager.
+
+### What Changed
+- **app/core/models.py** — Added `detection_count` property to `FrameResult` for
+  downstream convenience.
+- **app/ml/pipeline.py** — Updated `process_frame` to log multi-face detection
+  events.  Confirmed the pipeline already preserves the full `detections` list.
+- **app/main.py** — Updated application loop:
+  1) Logs total detection count.
+  2) Differentiates "Primary face" (used for events/recognition) from others.
+  3) **Multi-face Preview**: Draws thin yellow boxes for secondary faces and a
+     thick green box for the primary face.
+- **tests/test_ml_logic.py** — Added `TestMultiFaceDetection` class with 5 new
+  tests covering list preservation, primary selection, and empty edge cases.
+- **Docs** — Updated `ARCHITECTURE.md` contract and `BUILD_LOG.md`.
+
+### Compatibility
+- `primary_detection` field remains unchanged on `FrameResult`.
+- `EventManager` continues to process only the primary face.
+- No DB schema or config changes required.
+
+### Validation
+```bash
+pytest tests/test_ml_logic.py -v  # All 41 logic tests passed
+```
+
+---
+
+## 2026-03 — Iteration 8: Multi-Face Recognition (Complete)
+
+### Purpose
+Extend the pipeline from single-face recognition (primary only) to
+**multi-face recognition**: every detected face is now cropped, embedded,
+and compared against the enrolled gallery.
+
+### What Changed
+- **app/core/models.py** — Added `recognitions: List[Optional[RecognitionResult]]`
+  field aligned 1:1 with `detections`.  Added `primary_recognition` property
+  and backward-compatible `recognition` property (aliases `primary_recognition`).
+  Removed the old `recognition` field.
+- **app/ml/pipeline.py** — Recognition now loops over all detections instead
+  of only the primary.  Extracted `_recognise_one()` helper for crop→embed→compare.
+  Failed crop/embed slots store `None` (list never collapses).
+- **app/main.py** — Logging shows multi-face recognition summary (names of
+  known faces + count of unknowns).  Preview now shows name labels on all
+  recognised faces with three-tier colours: green (primary), yellow (known
+  secondary), grey (unknown).
+- **tests/test_ml_logic.py** — Added `TestMultiFaceRecognition` class (7 tests).
+  Updated `TestDecisionRule` to use `recognitions` list.
+
+### Compatibility
+- `result.recognition` property returns the primary face's recognition result.
+- `EventManager` + `Observation` building untouched — still single-face.
+- No DB schema or config changes required.
+- `recogniser_arcface.py` unchanged (already stateless).
+
+### Performance Note
+Per-frame recognition cost now scales linearly with the number of detected
+faces.  This is logged and accepted as the correct tradeoff for multi-face
+awareness.
+
+### Validation
+```bash
+pytest tests/ -v  # All 76 tests passed (41 logic + 23 event + 12 stub)
+```

@@ -187,44 +187,56 @@ class FacePipeline:
             recognition_enabled=self.recognition_enabled,
         )
 
+        if len(detections) > 1:
+            self._log.info(
+                "Detected %d face(s), primary bbox=%s",
+                len(detections),
+                primary.bbox.as_tuple() if primary else "none",
+            )
+
+
         if primary is None:
             result.message = "No primary face selected"
             return result
 
-        # 3. Recognition (optional — needs recogniser + aligned crop) ------
+        # 3. Multi-face recognition (Iteration 8) -------------------------
+        #    Run embed + compare for EVERY detection, not just primary.
+        #    Performance note: cost scales linearly with face count.
+        recognitions: list[RecognitionResult | None] = []
+
         if self._recogniser is not None:
-            # Prefer 5-point alignment; fall back to padded bbox crop
-            crop = None
-            if primary.keypoints is not None:
-                crop = align_face_5point(frame, primary.keypoints)
-            if crop is None:
-                crop = safe_crop_face(frame, primary.bbox)
-            if crop.size == 0:
-                result.message = (
-                    f"Detected face conf={primary.confidence:.2f} "
-                    f"bbox={primary.bbox.as_tuple()} — crop failed"
-                )
-                return result
+            for det in detections:
+                rec = self._recognise_one(frame, det)
+                recognitions.append(rec)
 
-            try:
-                embedding = self._recogniser.embed(crop)
-                recognition = self._recogniser.compare(embedding, self._enrolled)
-                result.recognition = recognition
+            result.recognitions = recognitions
 
-                if recognition.is_match:
+            # Build summary message from primary face
+            primary_rec = result.primary_recognition
+            if primary_rec is not None:
+                if primary_rec.is_match:
                     result.message = (
-                        f"Recognised: {recognition.name} "
-                        f"score={recognition.score:.3f}"
+                        f"Recognised: {primary_rec.name} "
+                        f"score={primary_rec.score:.3f}"
                     )
                 else:
                     result.message = (
-                        f"Unknown face score={recognition.score:.3f} "
+                        f"Unknown face score={primary_rec.score:.3f} "
                         f"(thresh={config.RECOGNITION_MATCH_THRESHOLD})"
                     )
-            except Exception as exc:  # noqa: BLE001
-                self._log.error("Recognition error: %s", exc)
-                result.message = f"Detection OK, recognition failed: {exc}"
+
+            # Multi-face recognition summary log
+            known = sum(1 for r in recognitions if r is not None and r.is_match)
+            unknown = len(recognitions) - known
+            if len(detections) > 1:
+                self._log.info(
+                    "Recognition: %d known, %d unknown out of %d face(s)",
+                    known, unknown, len(detections),
+                )
         else:
+            # No recogniser — fill with None placeholders
+            recognitions = [None] * len(detections)
+            result.recognitions = recognitions
             bbox = primary.bbox
             result.message = (
                 f"Detected face conf={primary.confidence:.2f} "
@@ -232,3 +244,37 @@ class FacePipeline:
             )
 
         return result
+
+    # ------------------------------------------------------------------
+    # Internal: recognise a single detection (Iteration 8)
+    # ------------------------------------------------------------------
+
+    def _recognise_one(
+        self,
+        frame: np.ndarray,
+        det: Detection,
+    ) -> RecognitionResult | None:
+        """
+        Crop, embed, and compare a single detected face.
+
+        Returns ``None`` if the crop fails or an exception occurs.
+        This method is called once per detection in multi-face mode.
+        """
+        crop = None
+        if det.keypoints is not None:
+            crop = align_face_5point(frame, det.keypoints)
+        if crop is None:
+            crop = safe_crop_face(frame, det.bbox)
+        if crop.size == 0:
+            self._log.debug(
+                "Crop failed for det bbox=%s", det.bbox.as_tuple()
+            )
+            return None
+
+        try:
+            embedding = self._recogniser.embed(crop)
+            return self._recogniser.compare(embedding, self._enrolled)
+        except Exception as exc:  # noqa: BLE001
+            self._log.error("Recognition error for bbox=%s: %s",
+                            det.bbox.as_tuple(), exc)
+            return None

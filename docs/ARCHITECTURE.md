@@ -166,14 +166,22 @@ Notes:
 ```python
 @dataclass
 class FrameResult:
-    detections: list[Detection]          # all detected faces
-    primary_detection: Detection | None  # largest bbox (MVP rule)
-    recognition: RecognitionResult | None
-    ml_enabled: bool                     # any ML capability active
-    detection_enabled: bool              # SCRFD detector loaded
-    recognition_enabled: bool            # ArcFace recogniser loaded
-    message: str                         # human-readable summary
+    detections: list[Detection]                       # all detected faces
+    recognitions: list[RecognitionResult | None]       # per-face recognition (aligned)
+    primary_detection: Detection | None               # largest bbox (MVP rule)
+    ml_enabled: bool                                  # any ML capability active
+    detection_enabled: bool                           # SCRFD detector loaded
+    recognition_enabled: bool                         # ArcFace recogniser loaded
+    message: str                                      # human-readable summary
+
+    @property  detection_count -> int                  # len(detections)
+    @property  primary_recognition -> RecognitionResult | None  # recognition for primary
+    @property  recognition -> RecognitionResult | None # backward-compat alias
 ```
+
+Iteration 7 added multi-face detection (`detections` list).  
+Iteration 8 added multi-face recognition (`recognitions` list, aligned 1:1 with `detections`).  
+`recognition` remains as a backward-compatible property returning the primary face's result.
 
 ## Headless Mode
 
@@ -192,8 +200,10 @@ detection and recognition results are logged to the console.  No
 | 4 – Snapshots | `recording/snapshot_recorder.py`, `db/repo.py`, `main.py` | event manager, ML pipeline |
 | 5 – Dashboard | `web/`, `web_run.py`, `services/enrollment_service.py` | pipeline (separate process) |
 | 6 – Tracking | `tracking/` wraps pipeline | pipeline API unchanged |
-| 7 – RTSP | `camera/rtsp.py` implements same ABC | pipeline, main |
-| 8 – Alerts | `services/alert_service.py` subscribes to events | everything else |
+| 7 – Multi-Face Detect | `pipeline.py`, `main.py` | Detects all faces, draws all boxes |
+| 8 – Multi-Face Recog | `pipeline.py`, `models.py`, `main.py` | Recognises all faces |
+| 9 – RTSP | `camera/rtsp.py` implements same ABC | pipeline, main |
+| 10 – Alerts | `services/alert_service.py` subscribes to events | everything else |
 
 ## Events Table  (Iteration 3)
 

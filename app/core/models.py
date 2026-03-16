@@ -96,15 +96,48 @@ class FrameResult:
     This is the **stable public contract** between ``ml/pipeline.py`` and
     every consumer (main loop, event manager, dashboard …).
     If you change the ML backend, only the *producer* changes — not consumers.
+
+    Iteration 7 added multi-face detection (``detections`` list).
+    Iteration 8 adds multi-face recognition (``recognitions`` list,
+    aligned 1:1 with ``detections``).
+
+    Backward compatibility
+    ----------------------
+    ``primary_detection`` / ``primary_recognition`` / ``recognition``
+    continue to expose single-face results for EventManager and
+    existing consumers that have not yet migrated to multi-face.
     """
 
     detections: List[Detection] = field(default_factory=list)
+    recognitions: List[Optional[RecognitionResult]] = field(default_factory=list)
     primary_detection: Optional[Detection] = None
-    recognition: Optional[RecognitionResult] = None
     ml_enabled: bool = False
     detection_enabled: bool = False
     recognition_enabled: bool = False
     message: str = ""
+
+    @property
+    def detection_count(self) -> int:
+        """Number of detections in this frame."""
+        return len(self.detections)
+
+    @property
+    def primary_recognition(self) -> Optional[RecognitionResult]:
+        """Recognition result for the primary (largest) face, or None."""
+        if self.primary_detection is None:
+            return None
+        try:
+            idx = self.detections.index(self.primary_detection)
+            if idx < len(self.recognitions):
+                return self.recognitions[idx]
+        except ValueError:
+            pass
+        return None
+
+    @property
+    def recognition(self) -> Optional[RecognitionResult]:
+        """Backward-compatible alias for ``primary_recognition``."""
+        return self.primary_recognition
 
 
 # ---------------------------------------------------------------------------

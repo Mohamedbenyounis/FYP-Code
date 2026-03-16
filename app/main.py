@@ -1,5 +1,5 @@
 """
-SecureVision — main entry point (Iteration 3).
+SecureVision — main entry point (Iteration 8).
 
 Captures webcam frames, runs the ML pipeline every N-th frame, feeds
 observations into the EventManager, and persists confirmed events to
@@ -117,17 +117,36 @@ def main() -> int:
                 last_result = result  # persist for drawing on all frames
 
                 # Structured console output (always active)
+                if result.detections:
+                    log.info("Detected %d face(s)", len(result.detections))
+
                 if result.primary_detection is not None:
                     det = result.primary_detection
                     log.info(
-                        "Detected face | conf=%.2f | bbox=%s | size=%dx%d",
+                        "Primary face  | conf=%.2f | bbox=%s | size=%dx%d",
                         det.confidence,
                         det.bbox.as_tuple(),
                         det.bbox.width,
                         det.bbox.height,
                     )
 
-                if result.recognition is not None:
+                # Multi-face recognition summary  (Iteration 8)
+                if result.recognitions:
+                    known = [
+                        r for r in result.recognitions
+                        if r is not None and r.is_match
+                    ]
+                    if known:
+                        names = ", ".join(r.name for r in known)
+                        log.info("Recognised: %s", names)
+                    unknown_count = sum(
+                        1 for r in result.recognitions
+                        if r is None or not r.is_match
+                    )
+                    if unknown_count:
+                        log.info("Unknown faces: %d", unknown_count)
+                elif result.recognition is not None:
+                    # Fallback for backward compat (single recognition)
                     rec = result.recognition
                     if rec.is_match:
                         log.info(
@@ -216,37 +235,56 @@ def main() -> int:
             if config.SHOW_PREVIEW:
                 display_frame = frame.copy()
 
-                # Overlay detection bbox using latest ML result
-                if (
-                    last_result is not None
-                    and last_result.primary_detection is not None
-                ):
-                    b = last_result.primary_detection.bbox
-                    cv2.rectangle(
-                        display_frame,
-                        (b.x1, b.y1),
-                        (b.x2, b.y2),
-                        (0, 255, 0),
-                        2,
-                    )
+                # Overlay all detection bboxes using latest ML result
+                if last_result is not None:
+                    for idx, det in enumerate(last_result.detections):
+                        b = det.bbox
+                        is_primary = (
+                            last_result.primary_detection is not None
+                            and det is last_result.primary_detection
+                        )
 
-                    label = f"conf={last_result.primary_detection.confidence:.2f}"
-                    if last_result.recognition is not None:
-                        rec = last_result.recognition
-                        if rec.is_match:
-                            label = f"{rec.name} ({rec.score:.2f})"
+                        # Look up per-face recognition (Iteration 8)
+                        rec = None
+                        if idx < len(last_result.recognitions):
+                            rec = last_result.recognitions[idx]
+
+                        # Colour: primary green, known yellow, unknown grey
+                        if is_primary:
+                            colour = (0, 255, 0)
+                            thickness = 2
+                        elif rec is not None and rec.is_match:
+                            colour = (0, 255, 255)  # yellow — known
+                            thickness = 2
                         else:
-                            label = f"Unknown ({rec.score:.2f})"
+                            colour = (180, 180, 180)  # grey — unknown
+                            thickness = 1
 
-                    cv2.putText(
-                        display_frame,
-                        label,
-                        (b.x1, b.y1 - 10),
-                        cv2.FONT_HERSHEY_SIMPLEX,
-                        0.6,
-                        (0, 255, 0),
-                        2,
-                    )
+                        cv2.rectangle(
+                            display_frame,
+                            (b.x1, b.y1),
+                            (b.x2, b.y2),
+                            colour,
+                            thickness,
+                        )
+
+                        # Label: show identity if recognised, else confidence
+                        if rec is not None and rec.is_match:
+                            label = f"{rec.name} ({rec.score:.2f})"
+                        elif rec is not None:
+                            label = f"Unknown ({rec.score:.2f})"
+                        else:
+                            label = f"conf={det.confidence:.2f}"
+
+                        cv2.putText(
+                            display_frame,
+                            label,
+                            (b.x1, b.y1 - 10),
+                            cv2.FONT_HERSHEY_SIMPLEX,
+                            0.6 if is_primary else 0.5,
+                            colour,
+                            2 if is_primary else 1,
+                        )
 
                 # Status bar
                 status_text = (
