@@ -44,7 +44,7 @@ def main() -> int:
     """Application entry point.  Returns 0 on success, 1 on error."""
     log = get_logger()
     log.info("=" * 60)
-    log.info("SecureVision starting — Iteration 3")
+    log.info("SecureVision starting — Iteration 8")
     log.info("=" * 60)
 
     # Ensure folders ---------------------------------------------------
