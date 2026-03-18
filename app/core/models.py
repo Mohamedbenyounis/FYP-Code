@@ -167,14 +167,18 @@ class Observation:
 
     Built by ``main.py`` from a ``FrameResult``.  The event manager
     accumulates observations to decide when to emit an ``Event``.
+
+    Iteration 9 adds ``track_key`` to associate observations with specific
+    tracked entities in the MultiEntityEventManager.
     """
 
     timestamp: float                          # time.monotonic() seconds
-    face_present: bool                        # True if primary_detection exists
-    person_name: Optional[str] = None         # recognised name (None ⇒ unknown)
+    face_present: bool                        # True if detection exists
+    person_name: Optional[str] = None         # recognised name (None => unknown)
     person_id: Optional[int] = None           # DB id, if recognised
     score: float = 0.0                        # cosine similarity
-    bbox: Optional[BoundingBox] = None        # primary face bbox
+    bbox: Optional[BoundingBox] = None        # face bbox
+    track_key: Optional[str] = None           # entity track key (Iteration 9)
 
 
 # ---------------------------------------------------------------------------

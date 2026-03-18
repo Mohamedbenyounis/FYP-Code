@@ -198,3 +198,20 @@ DASHBOARD_PORT: int = _env_int("SV_DASHBOARD_PORT", 5000)
 FLASK_SECRET_KEY: str = _env("SV_FLASK_SECRET_KEY", "securevision-dev-secret")
 BOOTSTRAP_ADMIN_USERNAME: str | None = _env_optional("SV_BOOTSTRAP_ADMIN_USERNAME")
 BOOTSTRAP_ADMIN_PASSWORD: str | None = _env_optional("SV_BOOTSTRAP_ADMIN_PASSWORD")
+
+# =============================================================================
+# MULTI-FACE EVENT HANDLING  (Iteration 9 — experimental)
+# =============================================================================
+
+MULTI_FACE_ASSOCIATION_DISTANCE: float = _env_float(
+    "SV_MULTI_FACE_ASSOCIATION_DISTANCE", 150.0
+)
+"""Max centroid distance (pixels) to associate a detection with an existing track.
+Detections further than this from all existing tracks get a new track key."""
+
+MULTI_FACE_MAX_ENTITIES: int = _env_int(
+    "SV_MULTI_FACE_MAX_ENTITIES", 10
+)
+"""Maximum number of concurrent tracked entities (face EventManagers).
+Prevents resource leak from spurious detections."""
+
