@@ -1,9 +1,9 @@
 """
-SecureVision — main entry point (Iteration 8).
+SecureVision — main entry point (Iteration 9 — experimental branch).
 
 Captures webcam frames, runs the ML pipeline every N-th frame, feeds
-observations into the EventManager, and persists confirmed events to
-the SQLite database.
+per-face observations into the MultiEntityEventManager, and persists
+confirmed events to the SQLite database.
 """
 
 from __future__ import annotations
@@ -15,7 +15,7 @@ import cv2
 
 from app import config
 from app.camera.webcam import WebcamCamera
-from app.core.event_manager import EventManager
+from app.core.multi_event_manager import MultiEntityEventManager
 from app.core.models import Observation
 from app.db.migrations import init_db
 from app.db.repo import (
@@ -44,7 +44,7 @@ def main() -> int:
     """Application entry point.  Returns 0 on success, 1 on error."""
     log = get_logger()
     log.info("=" * 60)
-    log.info("SecureVision starting — Iteration 8")
+    log.info("SecureVision starting — Iteration 9 (experimental)")
     log.info("=" * 60)
 
     # Ensure folders ---------------------------------------------------
@@ -60,8 +60,10 @@ def main() -> int:
     snapshot_recorder = SnapshotRecorder(config.SNAPSHOTS_DIR)
     log.info("DB path  : %s", config.DB_PATH)
 
-    # Event Manager (Level 2 state machine) ----------------------------
-    event_manager = EventManager(
+    # Multi-Entity Event Manager (Iteration 9) -------------------------
+    event_manager = MultiEntityEventManager(
+        association_distance=config.MULTI_FACE_ASSOCIATION_DISTANCE,
+        max_entities=config.MULTI_FACE_MAX_ENTITIES,
         window_n=config.EVENT_CONFIRM_WINDOW_N,
         confirm_k=config.EVENT_CONFIRM_MIN_K,
         lost_frames=config.EVENT_LOST_FRAMES,
@@ -69,7 +71,12 @@ def main() -> int:
         score_threshold=config.AUTHORISATION_THRESHOLD,
     )
     log.info(
-        "EventManager: window=%d  confirm=%d  lost=%d  cooldown=%.1fs",
+        "MultiEntityEventManager: assoc_dist=%.0fpx  max_entities=%d",
+        config.MULTI_FACE_ASSOCIATION_DISTANCE,
+        config.MULTI_FACE_MAX_ENTITIES,
+    )
+    log.info(
+        "  per-face: window=%d  confirm=%d  lost=%d  cooldown=%.1fs",
         config.EVENT_CONFIRM_WINDOW_N,
         config.EVENT_CONFIRM_MIN_K,
         config.EVENT_LOST_FRAMES,
@@ -168,31 +175,34 @@ def main() -> int:
                     ),
                 )
 
-                # --- Event Manager (Iteration 3) -------------------------
-                obs = Observation(
-                    timestamp=time.monotonic(),
-                    face_present=result.primary_detection is not None,
-                    person_name=(
-                        result.recognition.name
-                        if result.recognition is not None
-                        and result.recognition.is_match
-                        else None
-                    ),
-                    person_id=None,  # resolved in future iteration
-                    score=(
-                        result.recognition.score
-                        if result.recognition is not None
-                        else 0.0
-                    ),
-                    bbox=(
-                        result.primary_detection.bbox
-                        if result.primary_detection is not None
-                        else None
-                    ),
-                )
+                # --- Multi-Face Event Manager (Iteration 9) ---------------
+                now = time.monotonic()
+                per_face_obs: list[Observation] = []
 
-                event = event_manager.update(obs)
-                if event is not None:
+                for idx, det in enumerate(result.detections):
+                    rec = None
+                    if idx < len(result.recognitions):
+                        rec = result.recognitions[idx]
+
+                    obs = Observation(
+                        timestamp=now,
+                        face_present=True,
+                        person_name=(
+                            rec.name
+                            if rec is not None and rec.is_match
+                            else None
+                        ),
+                        person_id=None,  # resolved in future iteration
+                        score=rec.score if rec is not None else 0.0,
+                        bbox=det.bbox,
+                    )
+                    per_face_obs.append(obs)
+
+                # If no faces detected, still send an empty list so
+                # tracked entities get their "absent" observations.
+                events = event_manager.update(per_face_obs)
+
+                for event in events:
                     event_repo.add_event(event)
 
                     snapshot_path = snapshot_recorder.on_event(event, frame)
@@ -229,6 +239,13 @@ def main() -> int:
                         event.status,
                         event.person_name or "unknown",
                         event.score or 0.0,
+                    )
+
+                if event_manager.active_tracks > 0:
+                    log.debug(
+                        "Active tracks: %d  states: %s",
+                        event_manager.active_tracks,
+                        event_manager.track_states(),
                     )
 
             # --- Preview window (guarded by SHOW_PREVIEW) -----------------
