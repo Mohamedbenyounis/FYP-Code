@@ -202,8 +202,9 @@ detection and recognition results are logged to the console.  No
 | 6 – Tracking | `tracking/` wraps pipeline | pipeline API unchanged |
 | 7 – Multi-Face Detect | `pipeline.py`, `main.py` | Detects all faces, draws all boxes |
 | 8 – Multi-Face Recog | `pipeline.py`, `models.py`, `main.py` | Recognises all faces |
-| 9 – RTSP | `camera/rtsp.py` implements same ABC | pipeline, main |
-| 10 – Alerts | `services/alert_service.py` subscribes to events | everything else |
+| 9 – Multi-Face Events | `multi_event_manager.py`, `main.py`, `models.py` | Per-face event lifecycle |
+| 10 – RTSP | `camera/rtsp.py` implements same ABC | pipeline, main |
+| 11 – Alerts | `services/alert_service.py` subscribes to events | everything else |
 
 ## Events Table  (Iteration 3)
 
@@ -224,6 +225,27 @@ The `events` table stores confirmed presence events emitted by the
 
 The `EventManager` is pure logic — `main.py` calls `event_repo.add_event()`
 to persist the `Event` object.  All SQL stays in `db/repo.py`.
+
+## Multi-Entity Event Handling  (Iteration 9 — experimental)
+
+```
+FrameResult
+    → build List[Observation] (one per face, with bbox + recognition)
+    → MultiEntityEventManager.update(observations)
+        → nearest-centroid association → route to per-face EventManager
+        → absent observations for unmatched tracks
+        → prune stale tracks
+    → List[Event]  (zero or more per frame)
+```
+
+The `MultiEntityEventManager` wraps the unchanged `EventManager`:
+- One `EventManager` instance per tracked face
+- Each face gets independent K-of-N confirmation and cooldown
+- Primary face is **no longer structurally required** — retained only as UI hint
+
+> **Limitation**: Centroid-only association is weak without visual tracking.
+> See `docs/MULTI_FACE_EVENT_HANDLING_LOG.md` for full design rationale.
+
 
 ## SQLite Threading Note
 

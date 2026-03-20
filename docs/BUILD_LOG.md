@@ -446,3 +446,45 @@ awareness.
 ```bash
 pytest tests/ -v  # All 76 tests passed (41 logic + 23 event + 12 stub)
 ```
+
+---
+
+## 2026-03 — Iteration 9: Multi-Face Event Handling (Experimental)
+
+> **Branch**: `feature/multi-face-event-handling`
+
+### Purpose
+Transition the event system from strict single-primary-face dependence
+to controlled multi-entity event handling.  Every detected face now gets
+its own independent EventManager lifecycle.
+
+### Architecture Choice
+**Option C — Hybrid transitional design**:
+- `EventManager` (Iteration 3) is **unchanged** and **untouched**
+- New `MultiEntityEventManager` orchestrator wraps per-face `EventManager` instances
+- Face association via nearest-centroid heuristic (configurable distance)
+- Primary face transitions from mandatory structural dependency to optional UI annotation
+
+### What Changed
+- **[NEW] app/core/multi_event_manager.py** — Orchestrator with association,
+  per-face lifecycle management, stale track pruning, max entity cap
+- **[MODIFY] app/core/models.py** — Added `track_key: Optional[str]` to `Observation`
+- **[MODIFY] app/config.py** — Added `SV_MULTI_FACE_ASSOCIATION_DISTANCE` (150px)
+  and `SV_MULTI_FACE_MAX_ENTITIES` (10)
+- **[MODIFY] app/main.py** — Replaced single-Observation flow with per-face
+  Observation list.  Uses `MultiEntityEventManager` instead of `EventManager`.
+  Handles `List[Event]` return.
+- **[NEW] tests/test_multi_event_manager.py** — 15 tests for orchestrator
+- **[NEW] docs/MULTI_FACE_EVENT_HANDLING_LOG.md** — Design decisions and limitations
+
+### Limitations (Honest)
+- **Centroid-only association is weak** — Two people crossing paths will swap
+  identities.  This is a known, documented limitation.
+- **No visual tracking** — Future integration with Iteration 6 (CSRT/KCF) needed
+- **Cooldown uses real time** — Tests must account for `time.monotonic()` in
+  cooldown expiry
+
+### Validation
+```bash
+pytest tests/ -v  # All 142 tests passed (41 logic + 23 event + 12 stub + 15 multi-entity + 51 framework)
+```
