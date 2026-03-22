@@ -486,5 +486,5 @@ its own independent EventManager lifecycle.
 
 ### Validation
 ```bash
-pytest tests/ -v  # All 142 tests passed (41 logic + 23 event + 12 stub + 15 multi-entity + 51 framework)
+pytest tests/ -v  # All 144 tests passed (added edge cases for ghosting and crossings)
 ```

@@ -345,3 +345,54 @@ class TestBackwardCompat:
         assert event.status in ("authorised", "unauthorised")
         assert event.person_name == "Alice"
         assert event.score == 0.8
+
+
+# ===================================================================
+# Edge Cases and Validation (Iteration 9)
+# ===================================================================
+
+class TestEdgeCases:
+
+    def test_ghost_face_filtered(self) -> None:
+        """Transient false positive (1 frame) should not emit an event and should be pruned."""
+        mem = _make_mem(confirm_k=3, lost_frames=3)
+        # 1 frame appearance
+        events = mem.update([_obs(x1=10, y1=10, x2=50, y2=50, name=None, score=0.0)])
+        assert len(events) == 0
+        assert mem.active_tracks == 1
+        
+        # Then empty frames
+        for _ in range(15):
+            mem.update([])
+            
+        # Ghost track should be gone
+        assert mem.active_tracks == 0
+
+    def test_crossing_identities_swap_gracefully(self) -> None:
+        """When two faces cross paths, identities swap but lifecycle survives without crashing."""
+        mem = _make_mem(confirm_k=3, association_distance=150.0)
+        
+        # Frame 1: Face A at (100) and Face B at (400)
+        mem.update([
+            _obs(100, 100, 150, 150, "A", 0.9), 
+            _obs(400, 400, 450, 450, "B", 0.8)
+        ])
+        
+        # Frame 2: Move closer
+        mem.update([
+            _obs(200, 200, 250, 250, "A", 0.9), 
+            _obs(300, 300, 350, 350, "B", 0.8)
+        ])
+        
+        # Frame 3: Crossover (they swap positions relative to each other)
+        events = mem.update([
+            _obs(350, 350, 400, 400, "A", 0.9), 
+            _obs(150, 150, 200, 200, "B", 0.8)
+        ])
+        
+        # The system must not crash. Because 3 frames elapsed, two events fire.
+        # Note: Depending on the swap distance vs association distance,
+        # the tracks might swap identities, but the orchestrator must survive.
+        assert len(events) == 2
+        assert mem.active_tracks == 2
+
