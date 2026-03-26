@@ -1,5 +1,34 @@
 # SecureVision Build Log
 
+## 2026-03 — Iteration 11: Alerting for Unauthorised Users (Complete)
+
+### Purpose
+Introduce systemic alert extraction for unauthorised perimeter encounters. Suppress repeating flood notifications across unified tracking identities and optionally forward findings linearly isolated into SMTP email streams without degrading camera loops. Visually present these findings onto the primary Flask Dashboard.
+
+### What Changed
+- **app/config.py**: Incorporated `SV_ALERTS_ENABLED`, `SV_ALERT_SUPPRESSION_SECONDS`, and full SMTP definitions extending environment variables footprint. 
+- **app/db/schema.sql & app/db/repo.py**: Instantiated a new `alerts` SQL table bound dynamically to `events` acting as a chronological log of distinct triggered alerts securely handled through an added `SQLiteAlertRepository`.
+- **app/services/alert_service.py**: Re-architected previous stub routing into a solid `AlertService` integrating monotonic cooldown algorithms rejecting false-positives mapping per-identity.
+- **app/services/email_service.py**: Transitioned static abstract templates into functional single-thread TLS SMTP requests avoiding critical lockups within the primary inference sequence.
+- **app/main.py**: Sourced active looping events and immediately fed non-compliant matches sequentially down the `alert_service.trigger_unauthorised_alert()`. 
+- **Web App**: Mounted recent alert widgets onto `dashboard.html`, established `/alerts` explicitly detailing full historical warnings through `alerts.html`.
+
+## 2026-03 — Iteration 10: Validation / Stabilisation Pass (Complete)
+
+### Purpose
+Perform a validation/stabilisation pass on Iteration 10 (Event Video Clip Recording) to harden evidence outputs, ensure SQLite robustness on writer exceptions, and clean up physical disk organization.
+
+### What Changed
+- **app/recording/clip_recorder.py**: Added `_build_output_path()` enforcing `YYYY-MM-DD` directory subdivisions. Added hard `writer.isOpened()` safety blocks resolving corrupt file creation and orphaned database records upon permission or codec failures. Corrected the code definitions, replacing fictitious "async" terminology with accurate descriptions of main-loop chunked synchronous drops.
+- **tests/test_clip_recorder.py**: Implemented edge-case checking verifying that mocked disk failures gracefully bypass job instantiations seamlessly. Added verifications securing directory schemas.
+- **docs/CLIP_RECORDING_LOG.md**: Rectified wording aligning logic limitations and defining explicit constraints avoiding "fake production-level" assertions honestly.
+
+### Validation
+```bash
+Tests: Passed assertions checking bounds, sub-sampling intervals, and IO exceptions.
+```
+
+
 ## 2026-03 — Iteration 5: Local Flask Dashboard MVP (In Progress)
 
 ### Purpose

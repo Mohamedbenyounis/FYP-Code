@@ -152,6 +152,14 @@ SNAPSHOT_JPEG_QUALITY: int = _env_int("SV_SNAPSHOT_JPEG_QUALITY", 90)
 SNAPSHOT_SUBDIR_BY_DATE: bool = _env_bool("SV_SNAPSHOT_SUBDIR_BY_DATE", True)
 SAVE_RAW_SNAPSHOT: bool = _env_bool("SV_SAVE_RAW_SNAPSHOT", False)
 
+# Iteration 10: Event Clip Recording
+CLIP_ENABLED: bool = _env_bool("SV_CLIP_ENABLED", True)
+CLIP_PRE_EVENT_SECONDS: float = _env_float("SV_CLIP_PRE_EVENT_SECONDS", 2.0)
+CLIP_POST_EVENT_SECONDS: float = _env_float("SV_CLIP_POST_EVENT_SECONDS", 3.0)
+CLIP_TARGET_FPS: int = _env_int("SV_CLIP_TARGET_FPS", 15)
+CLIP_CODEC: str = _env("SV_CLIP_CODEC", "mp4v")
+CLIP_FILE_EXTENSION: str = _env("SV_CLIP_FILE_EXTENSION", ".mp4")
+
 # =============================================================================
 # ONNX RUNTIME
 # =============================================================================
@@ -214,4 +222,19 @@ MULTI_FACE_MAX_ENTITIES: int = _env_int(
 )
 """Maximum number of concurrent tracked entities (face EventManagers).
 Prevents resource leak from spurious detections."""
+
+# =============================================================================
+# ALERTS & NOTIFICATIONS (Iteration 11)
+# =============================================================================
+
+ALERTS_ENABLED: bool = _env_bool("SV_ALERTS_ENABLED", True)
+ALERT_SUPPRESSION_SECONDS: float = _env_float("SV_ALERT_SUPPRESSION_SECONDS", 300.0) # 5m cooldown
+
+EMAIL_ALERTS_ENABLED: bool = _env_bool("SV_EMAIL_ALERTS_ENABLED", False)
+EMAIL_SMTP_HOST: str = _env("SV_EMAIL_SMTP_HOST", "")
+EMAIL_SMTP_PORT: int = _env_int("SV_EMAIL_SMTP_PORT", 587)
+EMAIL_USERNAME: str = _env("SV_EMAIL_USERNAME", "")
+EMAIL_PASSWORD: str = _env("SV_EMAIL_PASSWORD", "")
+EMAIL_RECIPIENT: str = _env("SV_EMAIL_RECIPIENT", "")
+EMAIL_SENDER: str = _env("SV_EMAIL_SENDER", "securevision@localhost")
 

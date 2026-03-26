@@ -18,6 +18,10 @@
     <h2>Unauthorised</h2>
     <p>{{ unauthorised_count }}</p>
   </article>
+  <article class="card stat" style="border-left: 4px solid #e74c3c;">
+    <h2 style="color: #e74c3c;">Total Alerts</h2>
+    <p>{{ total_alerts }}</p>
+  </article>
 </section>
 
 <section class="card">
@@ -56,6 +60,35 @@
     </table>
   {% else %}
     <p>No events yet.</p>
+  {% endif %}
+</section>
+
+<section class="card">
+  <h2>Recent Alerts</h2>
+  {% if recent_alerts %}
+    <table>
+      <thead>
+        <tr>
+          <th>Created</th>
+          <th>Type</th>
+          <th>Message</th>
+          <th>Event Link</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for alert in recent_alerts %}
+          <tr>
+            <td>{{ alert.created_at }}</td>
+            <td><strong>{{ alert.alert_type }}</strong></td>
+            <td>{{ alert.message }}</td>
+            <td><a href="{{ url_for('web.event_detail', event_id=alert.event_id) }}">View Event</a></td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    <p><a href="{{ url_for('web.alerts') }}">View all alerts</a></p>
+  {% else %}
+    <p>No alerts yet.</p>
   {% endif %}
 </section>
 {% endblock %}

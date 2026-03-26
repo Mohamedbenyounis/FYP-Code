@@ -21,10 +21,14 @@ from app.db.migrations import init_db
 from app.db.repo import (
     SQLiteEventRepository,
     SQLitePersonRepository,
+    SQLiteAlertRepository,
     make_enrolled_provider,
 )
 from app.ml.pipeline import FacePipeline
 from app.recording.snapshot_recorder import SnapshotRecorder
+from app.recording.clip_recorder import ClipRecorder
+from app.services.alert_service import AlertService
+from app.services.email_service import EmailService
 from app.services.logging_service import FrameRateLogger, get_logger
 
 
@@ -55,9 +59,20 @@ def main() -> int:
     # Database ---------------------------------------------------------
     conn = init_db(config.DB_PATH)
     repo = SQLitePersonRepository(conn)
-    enrolled_provider = make_enrolled_provider(repo)
     event_repo = SQLiteEventRepository(conn)
+    alert_repo = SQLiteAlertRepository(conn)
     snapshot_recorder = SnapshotRecorder(config.SNAPSHOTS_DIR)
+    clip_recorder = ClipRecorder(config.CLIPS_DIR)
+    
+    # Alert Services (Iteration 11)
+    email_service = EmailService(
+        smtp_host=config.EMAIL_SMTP_HOST,
+        smtp_port=config.EMAIL_SMTP_PORT,
+        username=config.EMAIL_USERNAME,
+        password=config.EMAIL_PASSWORD
+    )
+    alert_service = AlertService(alert_repo, email_service)
+    
     log.info("DB path  : %s", config.DB_PATH)
 
     # Multi-Entity Event Manager (Iteration 9) -------------------------
@@ -117,6 +132,21 @@ def main() -> int:
                 continue
 
             frame_counter += 1
+
+            # --- Ring Buffer / Clip Recording (Iteration 10) --------------
+            if config.CLIP_ENABLED:
+                completed_clips = clip_recorder.feed_frame(frame)
+                for ev_id, clip_path in completed_clips:
+                    try:
+                        rel_path = clip_path.relative_to(config.BASE_DIR).as_posix()
+                    except ValueError:
+                        rel_path = clip_path.as_posix()
+                        
+                    updated = event_repo.update_event_clip(ev_id, rel_path)
+                    if updated:
+                        log.info("EVENT CLIP linked id=%s path=%s", ev_id[:8], rel_path)
+                    else:
+                        log.warning("EVENT CLIP link failed id=%s", ev_id[:8])
 
             # --- ML processing (every N-th frame) -------------------------
             if frame_counter % config.PROCESS_EVERY_N_FRAMES == 0:
@@ -205,6 +235,10 @@ def main() -> int:
                 for event in events:
                     event_repo.add_event(event)
 
+                    # --- Alerts Trigger (Iteration 11) ---
+                    if config.ALERTS_ENABLED and event.status == "unauthorised":
+                        alert_service.trigger_unauthorised_alert(event)
+
                     snapshot_path = snapshot_recorder.on_event(event, frame)
                     if snapshot_path is not None:
                         try:
@@ -227,11 +261,13 @@ def main() -> int:
                                 "EVENT SNAPSHOT link failed id=%s",
                                 event.event_id[:8],
                             )
-                    else:
                         log.warning(
                             "EVENT SNAPSHOT save failed id=%s",
                             event.event_id[:8],
                         )
+
+                    if config.CLIP_ENABLED:
+                        clip_recorder.on_event(event, frame)
 
                     log.info(
                         "EVENT  id=%s  status=%s  person=%s  score=%.3f",

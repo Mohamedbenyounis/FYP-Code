@@ -25,6 +25,7 @@ from app.db.repo import (
 	AdminRepository,
 	SQLiteEventRepository,
 	SQLitePersonRepository,
+	SQLiteAlertRepository,
 )
 from app.services.enrollment_service import decode_uploaded_image, enroll_from_image
 from app.web.auth import login_required, login_user, logout_user
@@ -33,12 +34,13 @@ from app.web.auth import login_required, login_user, logout_user
 web_bp = Blueprint("web", __name__)
 
 
-def _repos() -> tuple[SQLitePersonRepository, SQLiteEventRepository, AdminRepository]:
+def _repos() -> tuple[SQLitePersonRepository, SQLiteEventRepository, AdminRepository, SQLiteAlertRepository]:
 	conn = current_app.config["DB_CONN"]
 	return (
 		SQLitePersonRepository(conn),
 		SQLiteEventRepository(conn),
 		AdminRepository(conn),
+		SQLiteAlertRepository(conn),
 	)
 
 
@@ -117,7 +119,7 @@ def logout():
 @web_bp.route("/")
 @login_required
 def dashboard():
-	person_repo, event_repo, _ = _repos()
+	person_repo, event_repo, _, alert_repo = _repos()
 	total_persons = person_repo.count_persons()
 	total_events = event_repo.count_events()
 	authorised_count = event_repo.count_events(status="authorised")
@@ -126,6 +128,9 @@ def dashboard():
 	for event in recent_events:
 		_decorate_event_for_display(event)
 
+	recent_alerts = alert_repo.list_alerts(limit=5)
+	total_alerts = alert_repo.count_alerts()
+
 	return render_template(
 		"dashboard.html",
 		total_persons=total_persons,
@@ -133,6 +138,8 @@ def dashboard():
 		authorised_count=authorised_count,
 		unauthorised_count=unauthorised_count,
 		recent_events=recent_events,
+		recent_alerts=recent_alerts,
+		total_alerts=total_alerts,
 		recognition_match_threshold=config.RECOGNITION_MATCH_THRESHOLD,
 		authorisation_threshold=config.AUTHORISATION_THRESHOLD,
 	)
@@ -141,7 +148,7 @@ def dashboard():
 @web_bp.route("/events")
 @login_required
 def events():
-	_, event_repo, _ = _repos()
+	_, event_repo, _, _ = _repos()
 	status_filter = request.args.get("status")
 	if status_filter in {"authorised", "unauthorised"}:
 		items = event_repo.list_events(limit=200, status=status_filter)
@@ -161,7 +168,7 @@ def events():
 @web_bp.route("/events/<event_id>")
 @login_required
 def event_detail(event_id: str):
-	_, event_repo, _ = _repos()
+	_, event_repo, _, _ = _repos()
 	event = event_repo.get_event_by_id(event_id)
 	if event is None:
 		abort(404)
@@ -184,7 +191,7 @@ def event_snapshot(event_id: str):
 
 	This prevents arbitrary file serving and constrains reads to snapshots dir.
 	"""
-	_, event_repo, _ = _repos()
+	_, event_repo, _, _ = _repos()
 	event = event_repo.get_event_by_id(event_id)
 	if event is None or not event.snapshot_path:
 		abort(404)
@@ -199,7 +206,7 @@ def event_snapshot(event_id: str):
 @web_bp.route("/persons")
 @login_required
 def persons():
-	person_repo, _, _ = _repos()
+	person_repo, _, _, _ = _repos()
 	summaries = person_repo.list_person_summaries()
 	return render_template("persons.html", persons=summaries)
 
@@ -207,7 +214,7 @@ def persons():
 @web_bp.route("/persons/<int:person_id>/delete", methods=["POST"])
 @login_required
 def delete_person(person_id: int):
-	person_repo, _, _ = _repos()
+	person_repo, _, _, _ = _repos()
 	deleted = person_repo.delete_person(person_id)
 	if deleted:
 		flash("Person deleted", "success")
@@ -242,3 +249,11 @@ def enroll():
 		return render_template("enroll.html"), 400
 
 	return render_template("enroll.html")
+
+
+@web_bp.route("/alerts")
+@login_required
+def alerts():
+	_, _, _, alert_repo = _repos()
+	items = alert_repo.list_alerts(limit=200)
+	return render_template("alerts.html", alerts=items)

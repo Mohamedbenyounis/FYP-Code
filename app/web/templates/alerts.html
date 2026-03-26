@@ -1,0 +1,33 @@
+{% extends 'base.html' %}
+{% block title %}Alerts - SecureVision{% endblock %}
+{% block content %}
+<section class="card">
+  <h2>Alert Log</h2>
+  {% if alerts %}
+    <table>
+      <thead>
+        <tr>
+          <th>ID</th>
+          <th>Created At</th>
+          <th>Type</th>
+          <th>Message</th>
+          <th>Event</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for alert in alerts %}
+          <tr>
+            <td>{{ alert.id }}</td>
+            <td>{{ alert.created_at }}</td>
+            <td><span class="badge warn">{{ alert.alert_type }}</span></td>
+            <td>{{ alert.message }}</td>
+            <td><a href="{{ url_for('web.event_detail', event_id=alert.event_id) }}">View {{ alert.event_id[:8] }}</a></td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <p>No alerts have been generated.</p>
+  {% endif %}
+</section>
+{% endblock %}

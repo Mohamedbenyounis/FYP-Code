@@ -463,6 +463,15 @@ class SQLiteEventRepository:
         self._conn.commit()
         return cursor.rowcount > 0
 
+    def update_event_clip(self, event_id: str, clip_path: str) -> bool:
+        """Update the clip path for an existing event row."""
+        cursor = self._conn.execute(
+            "UPDATE events SET clip_path = ? WHERE id = ?",
+            (clip_path, event_id),
+        )
+        self._conn.commit()
+        return cursor.rowcount > 0
+
     def get_event_by_id(self, event_id: str) -> Optional[Event]:
         """Fetch a single event by its UUID primary key."""
         cursor = self._conn.execute(
@@ -542,4 +551,50 @@ class AdminRepository:
     def count(self) -> int:
         """Return total number of admin users."""
         cursor = self._conn.execute("SELECT COUNT(*) FROM admin_users")
+        return cursor.fetchone()[0]
+
+
+# =====================================================================
+# Alert repository  (Iteration 11)
+# =====================================================================
+
+class SQLiteAlertRepository:
+    """
+    Repository for the alerts table.
+    """
+
+    def __init__(self, conn: sqlite3.Connection) -> None:
+        self._conn = conn
+
+    def add_alert(self, event_id: str, alert_type: str, message: str) -> None:
+        """Insert a new alert linked to an event."""
+        now_iso = datetime.now(timezone.utc).isoformat()
+        self._conn.execute(
+            "INSERT INTO alerts (event_id, alert_type, message, created_at) "
+            "VALUES (?, ?, ?, ?)",
+            (event_id, alert_type, message, now_iso),
+        )
+        self._conn.commit()
+
+    def list_alerts(self, limit: int = 50) -> List[dict]:
+        """Fetch latest alerts."""
+        cursor = self._conn.execute(
+            "SELECT id, event_id, alert_type, message, created_at "
+            "FROM alerts ORDER BY created_at DESC LIMIT ?",
+            (limit,)
+        )
+        return [
+            {
+                "id": row[0],
+                "event_id": row[1],
+                "alert_type": row[2],
+                "message": row[3],
+                "created_at": row[4]
+            }
+            for row in cursor.fetchall()
+        ]
+        
+    def count_alerts(self) -> int:
+        """Return total number of alerts."""
+        cursor = self._conn.execute("SELECT COUNT(*) FROM alerts")
         return cursor.fetchone()[0]

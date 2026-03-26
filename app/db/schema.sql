@@ -57,3 +57,17 @@ CREATE TABLE IF NOT EXISTS admin_users (
     password_hash TEXT    NOT NULL,            -- werkzeug.security hash
     created_at    TEXT    NOT NULL             -- ISO 8601 (UTC)
 );
+
+-- =====================================================================
+-- Alerts  (Iteration 11)
+-- =====================================================================
+CREATE TABLE IF NOT EXISTS alerts (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    event_id      TEXT    NOT NULL,
+    alert_type    TEXT    NOT NULL,
+    message       TEXT    NOT NULL,
+    created_at    TEXT    NOT NULL,            -- ISO 8601 (UTC)
+    FOREIGN KEY (event_id) REFERENCES events(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_alerts_created_at ON alerts(created_at);
