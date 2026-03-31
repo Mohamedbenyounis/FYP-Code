@@ -157,7 +157,7 @@ CLIP_ENABLED: bool = _env_bool("SV_CLIP_ENABLED", True)
 CLIP_PRE_EVENT_SECONDS: float = _env_float("SV_CLIP_PRE_EVENT_SECONDS", 2.0)
 CLIP_POST_EVENT_SECONDS: float = _env_float("SV_CLIP_POST_EVENT_SECONDS", 3.0)
 CLIP_TARGET_FPS: int = _env_int("SV_CLIP_TARGET_FPS", 15)
-CLIP_CODEC: str = _env("SV_CLIP_CODEC", "mp4v")
+CLIP_CODEC: str = _env("SV_CLIP_CODEC", "avc1")
 CLIP_FILE_EXTENSION: str = _env("SV_CLIP_FILE_EXTENSION", ".mp4")
 
 # =============================================================================

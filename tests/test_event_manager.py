@@ -24,6 +24,7 @@ def _obs(
     name: str | None = None,
     person_id: int | None = None,
     score: float = 0.0,
+    track_key: str | None = None,
 ) -> Observation:
     """Build a minimal Observation for testing."""
     bbox = BoundingBox(10, 20, 110, 120) if face else None
@@ -34,6 +35,7 @@ def _obs(
         person_id=person_id,
         score=score,
         bbox=bbox,
+        track_key=track_key,
     )
 
 
@@ -283,3 +285,67 @@ class TestBestScoreTracking:
         assert ev.score == 0.9
         assert ev.person_name == "A"
         assert ev.person_id == 1
+
+
+# ===================================================================
+# track_key propagation  (Iteration 11b)
+# ===================================================================
+
+class TestTrackKeyPropagation:
+    """Verify that track_key flows from Observation → Event."""
+
+    def test_event_carries_track_key(self) -> None:
+        """Emitted event must carry the track_key from observations."""
+        em = _make_em(window_n=5, confirm_k=3)
+        events = []
+        for _ in range(3):
+            ev = em.update(
+                _obs(face=True, name="A", score=0.8, track_key="face_7")
+            )
+            if ev is not None:
+                events.append(ev)
+        assert len(events) == 1
+        assert events[0].track_key == "face_7"
+
+    def test_event_track_key_none_when_not_set(self) -> None:
+        """If no track_key on observations, Event.track_key is None."""
+        em = _make_em(window_n=5, confirm_k=3)
+        events = []
+        for _ in range(3):
+            ev = em.update(
+                _obs(face=True, name="A", score=0.8, track_key=None)
+            )
+            if ev is not None:
+                events.append(ev)
+        assert len(events) == 1
+        assert events[0].track_key is None
+
+    def test_track_key_resets_between_cycles(self) -> None:
+        """After cooldown expires and re-confirmation happens, track_key is fresh."""
+        em = _make_em(confirm_k=2, lost_frames=2, cooldown_seconds=0.01)
+        # Cycle 1: track_key = face_0
+        events = []
+        for _ in range(2):
+            ev = em.update(_obs(face=True, name="A", score=0.8, track_key="face_0"))
+            if ev:
+                events.append(ev)
+        assert len(events) == 1
+        assert events[0].track_key == "face_0"
+
+        # Drive to COOLDOWN
+        for _ in range(2):
+            em.update(_obs(face=False))
+        assert em.state == "COOLDOWN"
+
+        # Wait for cooldown
+        import time as t
+        t.sleep(0.02)
+
+        # Cycle 2: track_key = face_5 (different entity reusing this EM)
+        events2 = []
+        for _ in range(3):  # extra frame for safety
+            ev = em.update(_obs(face=True, name="B", score=0.7, track_key="face_5"))
+            if ev:
+                events2.append(ev)
+        assert len(events2) == 1
+        assert events2[0].track_key == "face_5"

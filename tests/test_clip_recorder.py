@@ -106,3 +106,143 @@ def test_clip_recorder_writer_failure_and_path(tmp_path: Path):
     today = datetime.now().strftime("%Y-%m-%d")
     date_dir = tmp_path / today
     assert date_dir.exists()
+
+
+# ===================================================================
+# EVALUATION TESTS — Pre-buffer validation
+# ===================================================================
+
+def test_clip_pre_buffer_correct_frame_count(tmp_path: Path):
+    """
+    Pre-buffer must contain frames from BEFORE the event trigger.
+    With pre_sec=1.0 and target_fps=10, the ring buffer should hold
+    exactly 10 frames at its maximum.
+    """
+    config.CLIP_TARGET_FPS = 10
+    config.CLIP_PRE_EVENT_SECONDS = 1.0
+    config.CLIP_POST_EVENT_SECONDS = 1.0
+    config.CLIP_FILE_EXTENSION = ".mp4"
+    config.CLIP_CODEC = "mp4v"
+
+    recorder = ClipRecorder(tmp_path)
+    frame = np.zeros((100, 100, 3), dtype=np.uint8)
+
+    with mock.patch("app.recording.clip_recorder.time.monotonic") as mock_time:
+        current_time = [0.0]
+        mock_time.side_effect = lambda: current_time[0]
+
+        # Fill more than buffer capacity (feed 15 frames at correct interval)
+        for i in range(15):
+            current_time[0] += 0.11
+            recorder.feed_frame(frame)
+
+        # Buffer should be capped at max_buffer_len = 10
+        assert len(recorder.buffer) == 10, (
+            f"Pre-buffer should hold exactly 10 frames, got {len(recorder.buffer)}"
+        )
+        assert recorder.max_buffer_len == 10
+
+
+# ===================================================================
+# EVALUATION TESTS — Post-buffer validation
+# ===================================================================
+
+def test_clip_post_buffer_continues_after_event(tmp_path: Path):
+    """
+    After on_event() is called, subsequent feed_frame() calls must
+    write frames to the active job until post-event frames are exhausted.
+    """
+    config.CLIP_TARGET_FPS = 10
+    config.CLIP_PRE_EVENT_SECONDS = 0.5  # 5 pre-frames
+    config.CLIP_POST_EVENT_SECONDS = 0.5  # 5 post-frames
+    config.CLIP_FILE_EXTENSION = ".mp4"
+    config.CLIP_CODEC = "mp4v"
+
+    recorder = ClipRecorder(tmp_path)
+    frame = np.zeros((100, 100, 3), dtype=np.uint8)
+
+    with mock.patch("app.recording.clip_recorder.time.monotonic") as mock_time:
+        current_time = [0.0]
+        mock_time.side_effect = lambda: current_time[0]
+
+        # Fill pre-buffer
+        for _ in range(10):
+            current_time[0] += 0.11
+            recorder.feed_frame(frame)
+
+        # Trigger event
+        event = Event(
+            event_id="post-buf-test",
+            created_at="2026-04-05T00:00:00Z",
+            status="unauthorised"
+        )
+        recorder.on_event(event, frame)
+        assert "post-buf-test" in recorder.active_jobs
+
+        job = recorder.active_jobs["post-buf-test"]
+        initial_remaining = job.frames_remaining
+        assert initial_remaining == 5, f"Post-frames should be 5, got {initial_remaining}"
+
+        # Feed 3 frames — job should still be active
+        for _ in range(3):
+            current_time[0] += 0.11
+            completed = recorder.feed_frame(frame)
+            assert len(completed) == 0
+
+        assert recorder.active_jobs["post-buf-test"].frames_remaining == 2
+
+        # Feed 2 more — job should complete
+        for _ in range(2):
+            current_time[0] += 0.11
+            completed = recorder.feed_frame(frame)
+
+        assert len(completed) == 1
+        assert completed[0][0] == "post-buf-test"
+        assert "post-buf-test" not in recorder.active_jobs
+
+
+# ===================================================================
+# EVALUATION TESTS — Clip file non-zero size
+# ===================================================================
+
+def test_clip_file_nonzero_size(tmp_path: Path):
+    """Completed clip file must exist and have non-zero size."""
+    config.CLIP_TARGET_FPS = 10
+    config.CLIP_PRE_EVENT_SECONDS = 0.5
+    config.CLIP_POST_EVENT_SECONDS = 0.5
+    config.CLIP_FILE_EXTENSION = ".mp4"
+    config.CLIP_CODEC = "mp4v"
+
+    recorder = ClipRecorder(tmp_path)
+    # Use a real-ish frame with actual pixel data
+    frame = np.random.randint(0, 255, (100, 100, 3), dtype=np.uint8)
+
+    with mock.patch("app.recording.clip_recorder.time.monotonic") as mock_time:
+        current_time = [0.0]
+        mock_time.side_effect = lambda: current_time[0]
+
+        # Fill pre-buffer
+        for _ in range(10):
+            current_time[0] += 0.11
+            recorder.feed_frame(frame)
+
+        # Trigger event
+        event = Event(
+            event_id="size-check-test",
+            created_at="2026-04-05T00:00:00Z",
+            status="unauthorised"
+        )
+        recorder.on_event(event, frame)
+
+        # Complete post-buffer — accumulate results across iterations
+        all_completed = []
+        for _ in range(6):
+            current_time[0] += 0.11
+            completed = recorder.feed_frame(frame)
+            all_completed.extend(completed)
+
+        assert len(all_completed) == 1, f"Expected 1 completed clip, got {len(all_completed)}"
+        _, clip_path = all_completed[0]
+        assert clip_path.exists(), f"Clip file should exist at {clip_path}"
+        assert clip_path.stat().st_size > 0, "Clip file must be non-zero bytes"
+

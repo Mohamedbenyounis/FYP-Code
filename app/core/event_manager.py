@@ -77,6 +77,7 @@ class EventManager:
         self._best_name: Optional[str] = None
         self._best_person_id: Optional[int] = None
         self._best_bbox_json: Optional[str] = None
+        self._track_key: Optional[str] = None  # Iteration 11b
 
         # COOLDOWN timer
         self._cooldown_start: float = 0.0
@@ -191,10 +192,15 @@ class EventManager:
             bbox_json=self._best_bbox_json,
             snapshot_path=None,
             clip_path=None,
+            track_key=self._track_key,
         )
 
     def _track_best(self, obs: Observation) -> None:
         """Keep the highest-scoring observation details."""
+        # track_key is always captured (not score-gated) because it
+        # identifies the entity, not the quality of the observation.
+        if obs.track_key is not None:
+            self._track_key = obs.track_key
         if obs.score > self._best_score:
             self._best_score = obs.score
             self._best_name = obs.person_name
@@ -208,3 +214,4 @@ class EventManager:
         self._best_name = None
         self._best_person_id = None
         self._best_bbox_json = None
+        self._track_key = None

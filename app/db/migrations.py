@@ -87,6 +87,9 @@ def init_db(db_path: Path) -> sqlite3.Connection:
     conn.executescript(schema_sql)
     conn.commit()
 
+    # Migrate: add track_key column to events (Iteration 11b) ----------
+    _migrate_events_add_track_key(conn, log)
+
     # Bootstrap default admin if none exists (Iteration 5) ------------
     _bootstrap_default_admin(conn, log)
 
@@ -102,6 +105,23 @@ def run_migrations(db_path: Path) -> sqlite3.Connection:
     version-based ALTER TABLE logic here.
     """
     return init_db(db_path)
+
+
+def _migrate_events_add_track_key(conn: sqlite3.Connection, log) -> None:
+    """
+    Add ``track_key`` column to the ``events`` table for existing databases.
+
+    This is idempotent — checks column existence before ALTER TABLE.
+    New databases already have the column from ``schema.sql``.
+    Iteration 11b.
+    """
+    cursor = conn.execute("PRAGMA table_info(events);")
+    columns = {row[1] for row in cursor.fetchall()}
+
+    if "track_key" not in columns:
+        log.info("Migrating events table: adding track_key column (Iteration 11b)")
+        conn.execute("ALTER TABLE events ADD COLUMN track_key TEXT;")
+        conn.commit()
 
 
 def _bootstrap_default_admin(conn: sqlite3.Connection, log) -> None:

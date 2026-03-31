@@ -384,8 +384,8 @@ class SQLiteEventRepository:
         self._conn.execute(
             "INSERT INTO events "
             "(id, status, person_name, person_id, score, bbox_json, "
-            " snapshot_path, clip_path, created_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            " snapshot_path, clip_path, track_key, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 event.event_id,
                 event.status,
@@ -395,15 +395,17 @@ class SQLiteEventRepository:
                 event.bbox_json,
                 event.snapshot_path,
                 event.clip_path,
+                event.track_key,
                 event.created_at,
             ),
         )
         self._conn.commit()
         self._log.info(
-            "Persisted event %s  status=%s  person=%s",
+            "Persisted event %s  status=%s  person=%s  track=%s",
             event.event_id,
             event.status,
             event.person_name or "unknown",
+            event.track_key or "-",
         )
 
     def list_events(
@@ -424,7 +426,8 @@ class SQLiteEventRepository:
         if status is not None:
             cursor = self._conn.execute(
                 "SELECT id, status, person_name, person_id, score, "
-                "       bbox_json, snapshot_path, clip_path, created_at "
+                "       bbox_json, snapshot_path, clip_path, track_key, "
+                "       created_at "
                 "FROM events WHERE status = ? "
                 "ORDER BY created_at DESC LIMIT ?",
                 (status, limit),
@@ -432,7 +435,8 @@ class SQLiteEventRepository:
         else:
             cursor = self._conn.execute(
                 "SELECT id, status, person_name, person_id, score, "
-                "       bbox_json, snapshot_path, clip_path, created_at "
+                "       bbox_json, snapshot_path, clip_path, track_key, "
+                "       created_at "
                 "FROM events ORDER BY created_at DESC LIMIT ?",
                 (limit,),
             )
@@ -442,7 +446,7 @@ class SQLiteEventRepository:
             results.append(
                 Event(
                     event_id=row[0],
-                    created_at=row[8],
+                    created_at=row[9],
                     status=row[1],
                     person_name=row[2],
                     person_id=row[3],
@@ -450,6 +454,7 @@ class SQLiteEventRepository:
                     bbox_json=row[5],
                     snapshot_path=row[6],
                     clip_path=row[7],
+                    track_key=row[8],
                 )
             )
         return results
@@ -476,7 +481,8 @@ class SQLiteEventRepository:
         """Fetch a single event by its UUID primary key."""
         cursor = self._conn.execute(
             "SELECT id, status, person_name, person_id, score, "
-            "       bbox_json, snapshot_path, clip_path, created_at "
+            "       bbox_json, snapshot_path, clip_path, track_key, "
+            "       created_at "
             "FROM events WHERE id = ?",
             (event_id,),
         )
@@ -492,7 +498,8 @@ class SQLiteEventRepository:
             bbox_json=row[5],
             snapshot_path=row[6],
             clip_path=row[7],
-            created_at=row[8],
+            track_key=row[8],
+            created_at=row[9],
         )
 
     def count_events(self, status: Optional[str] = None) -> int:
@@ -505,6 +512,20 @@ class SQLiteEventRepository:
             cursor = self._conn.execute("SELECT COUNT(*) FROM events")
         return cursor.fetchone()[0]
 
+    def count_events_since(self, dt: datetime, status: Optional[str] = None) -> int:
+        """Return the number of events recorded after the given datetime."""
+        iso_str = dt.isoformat()
+        if status is not None:
+            cursor = self._conn.execute(
+                "SELECT COUNT(*) FROM events WHERE status = ? AND created_at >= ?", 
+                (status, iso_str)
+            )
+        else:
+            cursor = self._conn.execute(
+                "SELECT COUNT(*) FROM events WHERE created_at >= ?", 
+                (iso_str,)
+            )
+        return cursor.fetchone()[0]
 
 # =====================================================================
 # Admin user repository  (Iteration 5 — Dashboard auth)
@@ -597,4 +618,12 @@ class SQLiteAlertRepository:
     def count_alerts(self) -> int:
         """Return total number of alerts."""
         cursor = self._conn.execute("SELECT COUNT(*) FROM alerts")
+        return cursor.fetchone()[0]
+
+    def count_alerts_since(self, dt: datetime) -> int:
+        """Return the number of alerts recorded after the given datetime."""
+        cursor = self._conn.execute(
+            "SELECT COUNT(*) FROM alerts WHERE created_at >= ?", 
+            (dt.isoformat(),)
+        )
         return cursor.fetchone()[0]

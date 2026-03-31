@@ -41,6 +41,7 @@ CREATE TABLE IF NOT EXISTS events (
     bbox_json     TEXT,                        -- JSON bounding box at confirmation
     snapshot_path TEXT,                        -- reserved for Iteration 4
     clip_path     TEXT,                        -- reserved for Iteration 4
+    track_key     TEXT,                        -- stable per-entity key (Iteration 11b)
     created_at    TEXT    NOT NULL,            -- ISO 8601 (UTC)
     FOREIGN KEY (person_id) REFERENCES persons(id)
 );

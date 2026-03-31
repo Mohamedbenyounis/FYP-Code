@@ -211,6 +211,11 @@ class Event:
         Reserved for Iteration 4 (always None for now).
     clip_path : str | None
         Reserved for Iteration 4 (always None for now).
+    track_key : str | None
+        Stable per-entity tracking key assigned by MultiEntityEventManager
+        (e.g. ``"face_0"``).  Used by AlertService for per-entity alert
+        suppression.  ``None`` when running without multi-entity tracking.
+        Iteration 11b.
     """
 
     event_id: str
@@ -222,3 +227,4 @@ class Event:
     bbox_json: Optional[str] = None
     snapshot_path: Optional[str] = None
     clip_path: Optional[str] = None
+    track_key: Optional[str] = None

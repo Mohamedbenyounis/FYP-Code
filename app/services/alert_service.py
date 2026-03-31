@@ -32,6 +32,11 @@ class AlertService:
         """
         Evaluate and dispatch an alert if it passes cooldown constraints.
         Only triggers for unauthorised events.
+
+        Suppression key strategy (Iteration 11b):
+        - Known person:   ``person:<person_id>``
+        - Unknown entity:  ``unknown_track:<track_key>``
+        - Fallback:        ``unknown:<event_id>``  (no suppression)
         """
         if not config.ALERTS_ENABLED:
             return
@@ -41,10 +46,23 @@ class AlertService:
             
         now = time.monotonic()
         
-        # Cooldown is per known person. For unknown identities, use the specific
-        # tracking session's event_id so distinct unknown faces generate distinct alerts
-        # instead of getting globally suppressed together.
-        key = str(event.person_id) if event.person_id is not None else str(event.event_id)
+        # --- Derive suppression key from the best available identity ---
+        #
+        # Known person:     person_id is stable across events for the same
+        #                   enrolled identity.
+        # Unknown tracked:  track_key (e.g. "face_3") is stable for the same
+        #                   physical entity across frames while it remains
+        #                   associated by centroid proximity.
+        # Fallback:         event_id (UUID) is unique per event, so
+        #                   suppression effectively won't activate.  This
+        #                   path should only occur in single-entity mode
+        #                   or if tracking is not running.
+        if event.person_id is not None:
+            key = f"person:{event.person_id}"
+        elif event.track_key is not None:
+            key = f"unknown_track:{event.track_key}"
+        else:
+            key = f"unknown:{event.event_id}"
         
         last = self._last_alert_time.get(key, 0.0)
         if (now - last) < self.cooldown_sec:
@@ -55,7 +73,7 @@ class AlertService:
         self._last_alert_time[key] = now
         
         message = f"Unauthorised presence detected. Event ID: {event.event_id[:8]}"
-        self._log.warning("ALERT FIRED: %s", message)
+        self._log.warning("ALERT FIRED: %s  key=%s", message, key)
         
         # Persist alert to DB
         self._repo.add_alert(
