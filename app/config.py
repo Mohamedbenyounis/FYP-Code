@@ -161,6 +161,13 @@ CLIP_CODEC: str = _env("SV_CLIP_CODEC", "avc1")
 CLIP_FILE_EXTENSION: str = _env("SV_CLIP_FILE_EXTENSION", ".mp4")
 
 # =============================================================================
+# LIVE VIEW (Iteration 12)
+# =============================================================================
+
+LIVE_VIEW_ENABLED: bool = _env_bool("SV_LIVE_VIEW_ENABLED", True)
+LIVE_VIEW_EVERY_N_FRAMES: int = _env_int("SV_LIVE_VIEW_EVERY_N_FRAMES", 2)
+
+# =============================================================================
 # ONNX RUNTIME
 # =============================================================================
 

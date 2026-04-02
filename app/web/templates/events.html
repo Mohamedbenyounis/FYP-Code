@@ -18,23 +18,29 @@
     <table>
       <thead>
         <tr>
-          <th>Created</th>
+          <th>Time</th>
           <th>Status</th>
           <th>Person</th>
           <th>Score</th>
-          <th>Snapshot</th>
-          <th>Details</th>
+          <th>Media</th>
+          <th>Action</th>
         </tr>
       </thead>
       <tbody>
         {% for event in events %}
           <tr>
-            <td>{{ event.created_at }}</td>
-            <td>{{ event.status }}</td>
+            <td>{{ event.created_at[:19] | replace('T', ' ') }}</td>
+            <td>
+                {% if event.status == 'authorised' %}
+                    <span style="color: #2ecc71; font-weight: bold;">{{ event.status|capitalize }}</span>
+                {% else %}
+                    <span style="color: #e74c3c; font-weight: bold;">{{ event.status|capitalize }}</span>
+                {% endif %}
+            </td>
             <td>
               {% if event.display_state == 'low_confidence_match' %}
                 <strong>{{ event.person_name }}</strong>
-                <div class="subtle">Matched but below authorisation threshold</div>
+                <div class="subtle" style="font-size: 0.8em; color: #f39c12;">Matched but below auth threshold</div>
               {% elif event.display_state == 'authorised_match' %}
                 {{ event.person_name }}
               {% else %}
@@ -42,7 +48,11 @@
               {% endif %}
             </td>
             <td>{{ '%.3f'|format(event.score or 0.0) }}</td>
-            <td>{{ 'Yes' if event.snapshot_path else 'No' }}</td>
+            <td>
+              {% if event.snapshot_path %}<span style="font-size: 0.9em; background: #eee; padding: 2px 5px; border-radius: 3px;">📷 Snap</span>{% endif %}
+              {% if event.clip_path %}<span style="font-size: 0.9em; background: #eee; padding: 2px 5px; border-radius: 3px; margin-left: 4px;">🎬 Clip</span>{% endif %}
+              {% if not event.snapshot_path and not event.clip_path %} None {% endif %}
+            </td>
             <td><a href="{{ url_for('web.event_detail', event_id=event.event_id) }}">View</a></td>
           </tr>
         {% endfor %}

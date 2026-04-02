@@ -114,24 +114,24 @@ Notes:
 - This shape intentionally prepares for a future `ClipRecorder` beside
      `SnapshotRecorder` without redesigning orchestration.
 
-## Iteration 5 Data Flow  (Dashboard MVP)
+## Iteration 12 Data Flow (Production Dashboard UI)
 
 ```
   Process A: app.main (pipeline writer)
-       └─ EventManager -> SQLiteEventRepository writes events + snapshot_path
+       ├─ EventManager -> SQLiteEventRepository writes events + snapshot_path
+       └─ LIVE_VIEW_ENABLED -> Writes generic data/latest_frame.jpg
 
   Process B: app.web_run (Flask dashboard reader/admin)
+       ├─ JS Poller -> hits /live/frame -> serves latest_frame.jpg w/ zero-cache
        ├─ Login (session auth) -> AdminRepository (admin_users)
-       ├─ Dashboard/Event/Person pages -> repositories in db/repo.py
-       ├─ Enrollment form -> services/enrollment_service.py
-       └─ Snapshot endpoint /events/<id>/snapshot
-             └─ serves only files under data/snapshots/
+       ├─ Dashboard/Event -> count_events_since(last_24h) metrics 
+       ├─ Snapshot endpoint /events/<id>/snapshot (sandboxed to snapshots/)
+       └─ Clip endpoint /events/<id>/clip (sandboxed to clips/) -> HTML5 <video>
 ```
 
 Notes:
-- Dashboard and pipeline are intentionally separate processes.
-- Flask routes contain no SQL; all data access stays in `db/repo.py`.
-- Snapshot serving is constrained to the snapshots directory and keyed by event id.
+- The Live streaming is managed exclusively via an asynchronous file write `latest_frame.jpg` out of Process A bridging into an image poll in Process B. We actively avoided weaving websockets across process boundaries.
+- Flask routes still contain no SQL loops; all time-series data fetches use the existing `db/repo.py` queries.
 
 ### Enrollment Flow
 

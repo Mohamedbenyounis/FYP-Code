@@ -23,11 +23,26 @@
 </section>
 
 <section class="card">
-  <h2>Snapshot</h2>
-  {% if snapshot_available %}
-    <img class="snapshot" src="{{ url_for('web.event_snapshot', event_id=event.event_id) }}" alt="Event snapshot">
-  {% else %}
-    <p>Snapshot not available for this event.</p>
-  {% endif %}
+  <h2>Media Evidence</h2>
+  <div style="display: flex; gap: 1.5rem; flex-wrap: wrap; margin-top: 1rem;">
+    {% if clip_available %}
+      <div style="flex: 1 1 400px;">
+        <h3 style="margin-top: 0;">Video Clip</h3>
+        <video controls preload="metadata" style="width: 100%; border-radius: 4px; border: 1px solid #ddd; background: #000;">
+          <source src="{{ url_for('web.event_clip', event_id=event.event_id) }}" type="video/mp4">
+          Your browser does not support the video tag.
+        </video>
+      </div>
+    {% endif %}
+
+    <div style="flex: 1 1 400px;">
+      <h3 style="margin-top: 0;">Snapshot Frame</h3>
+      {% if snapshot_available %}
+        <img class="snapshot" src="{{ url_for('web.event_snapshot', event_id=event.event_id) }}" alt="Event snapshot" style="width: 100%; border-radius: 4px; border: 1px solid #ddd;">
+      {% else %}
+        <p>Snapshot not available for this event.</p>
+      {% endif %}
+    </div>
+  </div>
 </section>
 {% endblock %}

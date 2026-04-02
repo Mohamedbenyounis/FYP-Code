@@ -1,5 +1,68 @@
 # SecureVision Build Log
 
+## 2026-04 — Iteration 12: Dashboard & UI Upgrades (Complete)
+
+### Purpose
+Upgrade the existing Flask dashboard out of its MVP state so it functions as a 
+real operational interface for the CCTV system without triggering a massive React/SPA 
+rewrite or necessitating RTSP streams.
+
+### What Changed
+- **app/config.py**: Added `SV_LIVE_VIEW_ENABLED`, `SV_LIVE_VIEW_EVERY_N_FRAMES` and changed default `CLIP_CODEC` to HTML-compatible `avc1`.
+- **app/main.py**: Added periodic export of the `display_frame` buffer directly to `data/latest_frame.jpg` when live view is enabled. This isolates the ML process completely from the Dashboard rendering process.
+- **app/db/repo.py**: Added `count_events_since()` and `count_alerts_since()` for real-time contextual analytics querying. 
+- **app/web/routes.py**: Implemented the `/events/<id>/clip` endpoint strictly validating DB video paths to avoid directory traversal. Added a zero-cache `/live/frame` endpoint serving the latest frame buffer. Connected new analytics polling to the dashboard view.
+- **app/web/templates/dashboard.html**: Implemented Live Camera Javascript polling widget, split summaries into 24-hours vs Lifetime metrics, and refined styling elements.
+- **app/web/templates/event/events/alerts.html**: Added embedded HTML5 `<video>` player, coloured status badges, and refined date formatting for human readability.
+- **tests/test_dashboard.py**: Asserted the `live/frame` correctly mounts or 404s depending on the pipeline running state, and secured clip playback testing against identical `win.ini` file traversal attempts as the snapshot verifier.
+- **Docs**: Instantiated `DASHBOARD_UI_LOG.md` and documented configuration constants.
+
+### Validation
+```bash
+pytest tests/ -v  # tests updated, 164 passed
+```
+
+## 2026-04 — Iteration 11b: Tracking Integration for Alert Suppression Fix (Complete)
+
+### Purpose
+Fix the broken alert suppression logic for unknown (unauthorised) entities.
+The previous implementation used `event.event_id` (unique UUID) as the suppression
+key for unknowns, which meant suppression never activated. This iteration threads
+the stable per-entity `track_key` from `MultiEntityEventManager` through
+`EventManager` to `Event` and then to `AlertService`, enabling correct per-entity
+alert suppression.
+
+### What Changed
+- **app/core/models.py**: Added `track_key: Optional[str]` field to `Event` dataclass.
+- **app/core/event_manager.py**: Added `_track_key` bookkeeping field. `_track_best()` now captures `obs.track_key`. `_emit_event()` passes `track_key` to `Event` constructor. `_reset_active_bookkeeping()` resets it.
+- **app/db/schema.sql**: Added `track_key TEXT` column to `events` table.
+- **app/db/migrations.py**: Added idempotent `ALTER TABLE events ADD COLUMN track_key TEXT` migration for existing databases.
+- **app/db/repo.py**: Updated `add_event()`, `list_events()`, and `get_event_by_id()` to persist and retrieve `track_key`.
+- **app/services/alert_service.py**: Replaced broken suppression key logic with three-tier strategy: `person:<person_id>` for known, `unknown_track:<track_key>` for unknown tracked entities, `unknown:<event_id>` as fallback.
+- **app/web/routes.py**: Fixed pre-existing unpacking bug in login route (4-tuple _repos() was unpacked as 3-tuple).
+- **tests/test_alert_service.py**: Rewritten with 10 comprehensive suppression scenario tests.
+- **tests/test_event_manager.py**: Added `TestTrackKeyPropagation` class (3 tests).
+- **tests/test_multi_event_manager.py**: Added `TestTrackKeyOnEvents` class (3 tests).
+- **docs/TRACKING_INTEGRATION_LOG.md**: New document detailing the tracking integration design and limitations.
+
+### Compatibility
+- `MultiEntityEventManager` unchanged — it already provided stable `track_key` via centroid association.
+- `EventManager` state machine logic unchanged — only additive bookkeeping fields added.
+- `main.py` unchanged — `track_key` flows automatically through the existing pipeline.
+- Existing databases upgraded via idempotent migration (nullable column addition).
+
+### Known Limitations
+- Centroid-only association still swaps IDs when people physically cross paths (pre-existing from Iteration 9).
+- Track keys are session-scoped (reset on restart). Acceptable because suppression timers also reset.
+- No visual tracking (CSRT/KCF). Separate future iteration.
+
+### Validation
+```
+python -m pytest tests/ --tb=short -q
+162 passed in 3.28s
+```
+
+
 ## 2026-03 — Iteration 11: Alerting for Unauthorised Users (Complete)
 
 ### Purpose

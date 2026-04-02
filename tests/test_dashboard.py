@@ -43,6 +43,7 @@ def _insert_event(
             bbox_json=None,
             snapshot_path=snapshot_path,
             clip_path=None,
+            track_key=None,
         )
     )
     return event_id
@@ -218,8 +219,87 @@ def test_named_unauthorised_event_shows_low_confidence_explanation(tmp_path, mon
     events_res = client.get("/events")
     assert events_res.status_code == 200
     assert b"Mohamed" in events_res.data
-    assert b"Matched but below authorisation threshold" in events_res.data
+    assert b"Matched but below auth threshold" in events_res.data
 
     detail_res = client.get(f"/events/{event_id}")
     assert detail_res.status_code == 200
     assert b"Matched identity but unauthorised" in detail_res.data
+
+
+def test_clip_route_serves_only_from_clip_dir(tmp_path, monkeypatch):
+    _set_bootstrap_admin_env(monkeypatch)
+    db_path = tmp_path / "securevision.sqlite"
+    base_dir = tmp_path
+    clips_dir = base_dir / "data" / "clips"
+    clips_dir.mkdir(parents=True, exist_ok=True)
+
+    monkeypatch.setattr(config, "DB_PATH", db_path)
+    monkeypatch.setattr(config, "BASE_DIR", base_dir)
+    monkeypatch.setattr(config, "CLIPS_DIR", clips_dir)
+    
+    app = create_app({"TESTING": True, "SECRET_KEY": "test-secret"})
+    # Overwrite app config so our route resolver works 
+    app.config["CLIPS_DIR"] = clips_dir
+    
+    conn = app.config["DB_CONN"]
+    event_repo = SQLiteEventRepository(conn)
+
+    good_rel = Path("data") / "clips" / "test_clip.mp4"
+    good_abs = base_dir / good_rel
+    good_abs.parent.mkdir(parents=True, exist_ok=True)
+    good_abs.write_bytes(b"mp4-bytes")
+
+    # Manually insert event with clip_path
+    event_id_good = str(uuid4())
+    event_repo.add_event(Event(event_id_good, datetime.now(timezone.utc).isoformat(), "authorised", None, None, 0.0, None, None, str(good_rel), None))
+    
+    event_id_bad = str(uuid4())
+    event_repo.add_event(Event(event_id_bad, datetime.now(timezone.utc).isoformat(), "authorised", None, None, 0.0, None, None, "..\\..\\Windows\\sys32.dll", None))
+
+    client = app.test_client()
+    _login(client)
+
+    ok = client.get(f"/events/{event_id_good}/clip")
+    assert ok.status_code == 200
+
+    blocked = client.get(f"/events/{event_id_bad}/clip")
+    assert blocked.status_code == 404
+
+
+def test_live_frame_route(tmp_path, monkeypatch):
+    _set_bootstrap_admin_env(monkeypatch)
+    db_path = tmp_path / "securevision.sqlite"
+    monkeypatch.setattr(config, "DB_PATH", db_path)
+    monkeypatch.setattr(config, "BASE_DIR", tmp_path)
+    
+    data_dir = tmp_path / "data"
+    data_dir.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setattr(config, "DATA_DIR", data_dir)
+    
+    app = create_app({"TESTING": True, "SECRET_KEY": "test-secret"})
+    client = app.test_client()
+    _login(client)
+
+    # Missing pipeline implies main isn't running yet, should 503
+    missing_res = client.get("/live/frame")
+    assert missing_res.status_code == 503
+
+    # Simulate main pipeline writing a frame to active RAM
+    from multiprocessing import shared_memory
+    payload = b"fake-image"
+    size = len(payload)
+    shm = None
+    try:
+        shm = shared_memory.SharedMemory(name="sv_live_frame", create=True, size=1024)
+        shm.buf[0] = 0
+        shm.buf[1:5] = size.to_bytes(4, 'little')
+        shm.buf[5:9] = (1).to_bytes(4, 'little')  # seq=1
+        shm.buf[9:9+size] = payload
+        
+        ok_res = client.get("/live/frame")
+        assert ok_res.status_code == 200
+        assert ok_res.headers.get("Cache-Control") == "no-store, no-cache, must-revalidate, max-age=0"
+    finally:
+        if shm is not None:
+            shm.close()
+            shm.unlink()

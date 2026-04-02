@@ -1,94 +1,144 @@
 {% extends 'base.html' %}
 {% block title %}Dashboard - SecureVision{% endblock %}
 {% block content %}
-<section class="cards">
+
+{% if live_view_enabled %}
+<section class="card" style="margin-bottom: 2rem;">
+  <div style="display: flex; justify-content: space-between; align-items: center;">
+    <h2 style="margin: 0;">Live Camera Feed</h2>
+    <button id="live-play-btn" style="padding: 0.4rem 1rem; border: none; background: #e74c3c; color: white; border-radius: 4px; cursor: pointer; font-weight: bold; font-size: 0.9em;">Stop Feed</button>
+  </div>
+  <div style="text-align: center; background: #000; padding: 1rem; border-radius: 6px; margin-top: 1rem;">
+    <!-- Natively supported MJPEG element -->
+    <img id="live-stream" alt="Live Feed (loading...)" onerror="this.alt='Live feed unavailable. Ensure main.py pipeline is running.';" style="max-width: 100%; max-height: 60vh; border-radius: 4px; border: 1px solid #333;" />
+  </div>
+  <script>
+    let isPlaying = true;
+    const imgElement = document.getElementById('live-stream');
+    const playBtn = document.getElementById('live-play-btn');
+    const streamUrl = "{{ url_for('web.live_stream') }}";
+    const frameUrl = "{{ url_for('web.live_frame') }}";
+
+    playBtn.addEventListener('click', () => {
+      isPlaying = !isPlaying;
+      if (isPlaying) {
+        playBtn.textContent = "Stop Feed";
+        playBtn.style.background = "#e74c3c";
+        imgElement.src = streamUrl + "?t=" + new Date().getTime();
+      } else {
+        playBtn.textContent = "Play Feed";
+        playBtn.style.background = "#2ecc71";
+        imgElement.src = frameUrl + "?t=" + new Date().getTime();
+      }
+    });
+
+    // Start native HTML streaming process
+    imgElement.src = streamUrl + "?t=" + new Date().getTime();
+  </script>
+</section>
+{% endif %}
+
+<h2>Activity: Last 24 Hours</h2>
+<section class="cards" style="margin-bottom: 2rem;">
   <article class="card stat">
-    <h2>Total Persons</h2>
+    <h3>Events</h3>
+    <p>{{ events_24h }}</p>
+  </article>
+  <article class="card stat">
+    <h3>Authorised</h3>
+    <p style="color: #2ecc71;">{{ auth_24h }}</p>
+  </article>
+  <article class="card stat">
+    <h3>Unauthorised</h3>
+    <p style="color: #f39c12;">{{ unauth_24h }}</p>
+  </article>
+  <article class="card stat" style="border-left: 4px solid #e74c3c;">
+    <h3 style="color: #e74c3c;">Alerts</h3>
+    <p>{{ alerts_24h }}</p>
+  </article>
+</section>
+
+<h2>Lifetime Totals</h2>
+<section class="cards" style="margin-bottom: 2rem;">
+  <article class="card stat">
+    <h3>Enrolled</h3>
     <p>{{ total_persons }}</p>
   </article>
   <article class="card stat">
-    <h2>Total Events</h2>
+    <h3>Total Events</h3>
     <p>{{ total_events }}</p>
   </article>
   <article class="card stat">
-    <h2>Authorised</h2>
-    <p>{{ authorised_count }}</p>
-  </article>
-  <article class="card stat">
-    <h2>Unauthorised</h2>
-    <p>{{ unauthorised_count }}</p>
-  </article>
-  <article class="card stat" style="border-left: 4px solid #e74c3c;">
-    <h2 style="color: #e74c3c;">Total Alerts</h2>
+    <h3>Total Alerts</h3>
     <p>{{ total_alerts }}</p>
   </article>
 </section>
 
-<section class="card">
-  <h2>Recent Events</h2>
-  {% if recent_events %}
-    <table>
-      <thead>
-        <tr>
-          <th>Created</th>
-          <th>Status</th>
-          <th>Person</th>
-          <th>Score</th>
-          <th>Details</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for event in recent_events %}
+<div style="display: grid; grid-template-columns: 2fr 1fr; gap: 1.5rem;">
+  <section class="card">
+    <h2>Recent Events</h2>
+    {% if recent_events %}
+      <table>
+        <thead>
           <tr>
-            <td>{{ event.created_at }}</td>
-            <td>{{ event.status }}</td>
-            <td>
-              {% if event.display_state == 'low_confidence_match' %}
-                <strong>{{ event.person_name }}</strong>
-                <span class="badge warn">Low-confidence match</span>
-              {% elif event.display_state == 'authorised_match' %}
-                {{ event.person_name }}
-              {% else %}
-                Unknown
-              {% endif %}
-            </td>
-            <td>{{ '%.3f'|format(event.score or 0.0) }}</td>
-            <td><a href="{{ url_for('web.event_detail', event_id=event.event_id) }}">View</a></td>
+            <th>Time</th>
+            <th>Type</th>
+            <th>Person</th>
+            <th>Score</th>
+            <th>Action</th>
           </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  {% else %}
-    <p>No events yet.</p>
-  {% endif %}
-</section>
+        </thead>
+        <tbody>
+          {% for event in recent_events %}
+            <tr>
+              <td>{{ event.created_at[:19] | replace('T', ' ') }}</td>
+              <td>
+                {% if event.status == 'authorised' %}
+                    <span style="color: #2ecc71;">{{ event.status }}</span>
+                {% else %}
+                    <span style="color: #e74c3c;">{{ event.status }}</span>
+                {% endif %}
+              </td>
+              <td>
+                {% if event.display_state == 'low_confidence_match' %}
+                  <strong>{{ event.person_name }}</strong>
+                  <span class="badge warn" style="font-size: 0.8em;">Low-conf</span>
+                {% elif event.display_state == 'authorised_match' %}
+                  {{ event.person_name }}
+                {% else %}
+                  Unknown
+                {% endif %}
+              </td>
+              <td>{{ '%.3f'|format(event.score or 0.0) }}</td>
+              <td><a href="{{ url_for('web.event_detail', event_id=event.event_id) }}">View</a></td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      <p style="margin-top:1rem;"><a href="{{ url_for('web.events') }}">View all events</a></p>
+    {% else %}
+      <p>No events yet.</p>
+    {% endif %}
+  </section>
 
-<section class="card">
-  <h2>Recent Alerts</h2>
-  {% if recent_alerts %}
-    <table>
-      <thead>
-        <tr>
-          <th>Created</th>
-          <th>Type</th>
-          <th>Message</th>
-          <th>Event Link</th>
-        </tr>
-      </thead>
-      <tbody>
+  <section class="card">
+    <h2>Recent Alerts</h2>
+    {% if recent_alerts %}
+      <ul style="list-style:none; padding:0; margin:0;">
         {% for alert in recent_alerts %}
-          <tr>
-            <td>{{ alert.created_at }}</td>
-            <td><strong>{{ alert.alert_type }}</strong></td>
-            <td>{{ alert.message }}</td>
-            <td><a href="{{ url_for('web.event_detail', event_id=alert.event_id) }}">View Event</a></td>
-          </tr>
+          <li style="margin-bottom: 1rem; padding-bottom: 1rem; border-bottom: 1px solid #ddd;">
+            <strong style="color:#e74c3c;">{{ alert.alert_type }}</strong><br>
+            <small style="color: #666;">{{ alert.created_at[:19] | replace('T', ' ') }}</small><br>
+            {{ alert.message }}<br>
+            <a style="font-size: 0.9em;" href="{{ url_for('web.event_detail', event_id=alert.event_id) }}">View Trigger Event &rarr;</a>
+          </li>
         {% endfor %}
-      </tbody>
-    </table>
-    <p><a href="{{ url_for('web.alerts') }}">View all alerts</a></p>
-  {% else %}
-    <p>No alerts yet.</p>
-  {% endif %}
-</section>
+      </ul>
+      <p style="margin-top:1rem;"><a href="{{ url_for('web.alerts') }}">View all alerts</a></p>
+    {% else %}
+      <p>No alerts yet.</p>
+    {% endif %}
+  </section>
+</div>
+
 {% endblock %}
