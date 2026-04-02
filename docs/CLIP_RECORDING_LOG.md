@@ -15,3 +15,15 @@ Implemented and active. Validated to gracefully drop upon Codec failures.
 ### Limitations
 - Clip writing happens **synchronously through continuous main loop execution**, chunking frame writes frame-by-frame per cycle. It is NOT truly asynchronous. Write time scaling with huge clip durations might cause small intermittent lags, but since writing MP4 frames uses incremental chunks to the FS it behaves reliably without big heap spikes.
 - Currently, overlapping clips might duplicate disk space. We decided to favor redundancy per event.
+
+## Iteration 12c: Lifecycle-Aware Clip Recording
+
+### Status
+Implemented and active. Resolves the flaw of static, artificially limited 5-second video output clips.
+
+### Dynamic Overhaul
+- **Track Lifecycle Binding**: Video recordings are no longer fixed at a hardcoded post-event length. Clips are now dynamically bound to `Event.track_key`.
+- **Active Mode**: When an event triggers, `ClipRecorder` establishes an `'active'` job which continues recording new, incoming camera frames perpetually as long as the person stays in frame.
+- **Track State Observation**: The secondary processing daemon (`main.py`) actively propagates Face State snapshots (e.g. `'ACTIVE'`, `'COOLDOWN'`) to `clip_recorder.update_track_states()`.
+- **Post-Tail Mode**: When an individual finally deserts the frame (losing their `'ACTIVE'` state), their video clip enters `'tail'` mode. It initiates a rigid, N-second countdown to flush the final 3.0 seconds post-exit.
+- **Disk Cap Safety Ceiling**: To safeguard the host environment against infinite video allocation (from stationary threats), `config.CLIP_MAX_DURATION_SECONDS` immediately forces closure of any video recording reaching a predefined chronological cap regardless of state. Standard defaults cap clips effectively around one minute.

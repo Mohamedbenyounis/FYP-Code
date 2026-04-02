@@ -246,3 +246,100 @@ def test_clip_file_nonzero_size(tmp_path: Path):
         assert clip_path.exists(), f"Clip file should exist at {clip_path}"
         assert clip_path.stat().st_size > 0, "Clip file must be non-zero bytes"
 
+
+# ===================================================================
+# EVALUATION TESTS — Lifecycle-Aware and Max Duration (Iteration 12c)
+# ===================================================================
+
+def test_clip_dynamic_lifecycle_recording(tmp_path: Path):
+    """
+    Test that an active track_key keeps a job open indefinitely,
+    until update_track_states signals its end, triggering the tail.
+    """
+    config.CLIP_TARGET_FPS = 10
+    config.CLIP_PRE_EVENT_SECONDS = 0.5
+    config.CLIP_POST_EVENT_SECONDS = 0.5 # 5 tail frames
+    config.CLIP_MAX_DURATION_SECONDS = 10.0 # High max duration
+
+    recorder = ClipRecorder(tmp_path)
+    frame = np.zeros((100, 100, 3), dtype=np.uint8)
+
+    with mock.patch("app.recording.clip_recorder.time.monotonic") as mock_time:
+        current_time = [0.0]
+        mock_time.side_effect = lambda: current_time[0]
+
+        event = Event(
+            event_id="dynamic-test",
+            created_at="2026-04-05T00:00:00Z",
+            status="unauthorised",
+            track_key="face_1"
+        )
+        recorder.on_event(event, frame)
+        assert "dynamic-test" in recorder.active_jobs
+        
+        # Test that while the track is active, feeding frames doesn't decrement the post-buffer
+        recorder.update_track_states({"face_1": "ACTIVE"})
+        for _ in range(15): # 1.5 seconds passes (3x normal post-sec limitation!)
+            current_time[0] += 0.11
+            completed = recorder.feed_frame(frame)
+            assert len(completed) == 0  # Should still be recording
+
+        assert recorder.active_jobs["dynamic-test"].mode == "active"
+        assert recorder.active_jobs["dynamic-test"].frames_written >= 15
+
+        # Face is lost / event ends.
+        recorder.update_track_states({"face_2": "ACTIVE"}) # face_1 missing
+        
+        assert recorder.active_jobs["dynamic-test"].mode == "tail"
+        
+        # Tail phase starts, expecting 5 frames
+        for _ in range(4):
+            current_time[0] += 0.11
+            assert len(recorder.feed_frame(frame)) == 0
+
+        current_time[0] += 0.11
+        completed = recorder.feed_frame(frame)
+        assert len(completed) == 1 # Finishes on exactly the 5th frame
+
+
+def test_clip_max_duration_safety_cutoff(tmp_path: Path):
+    """
+    Ensure extremely long presences don't violate the MAXIMUM_DURATION safety.
+    """
+    config.CLIP_TARGET_FPS = 10
+    config.CLIP_PRE_EVENT_SECONDS = 0.0
+    config.CLIP_POST_EVENT_SECONDS = 5.0
+    config.CLIP_MAX_DURATION_SECONDS = 3.0  # 30 frames MAX
+
+    recorder = ClipRecorder(tmp_path)
+    frame = np.zeros((100, 100, 3), dtype=np.uint8)
+
+    with mock.patch("app.recording.clip_recorder.time.monotonic") as mock_time:
+        current_time = [0.0]
+        mock_time.side_effect = lambda: current_time[0]
+
+        event = Event(
+            event_id="max-cap-test",
+            created_at="2026-04-05T00:00:00Z",
+            status="unauthorised",
+            track_key="cap_face"
+        )
+        recorder.on_event(event, frame)
+        
+        # Keep track active infinitely
+        recorder.update_track_states({"cap_face": "ACTIVE"})
+        
+        # Try to feed 35 frames. It should hard-cut at 30 frames.
+        for i in range(1, 35):
+            current_time[0] += 0.11
+            completed = recorder.feed_frame(frame)
+            if i < 30:
+                assert len(completed) == 0
+            elif i == 30:
+                assert len(completed) == 1
+                assert completed[0][0] == "max-cap-test"
+            else:
+                assert len(completed) == 0 # already done
+                
+        assert "max-cap-test" not in recorder.active_jobs
+

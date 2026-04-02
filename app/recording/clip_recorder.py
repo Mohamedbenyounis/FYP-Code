@@ -1,6 +1,6 @@
 """
 Clip recorder for ring-buffer video capture.
-Iteration 10: Event Clip Recording.
+Iteration 12c: Lifecycle-Aware Clip Recording.
 """
 
 import collections
@@ -22,12 +22,15 @@ from app.services.logging_service import get_logger
 class ClipJob:
     """Internal state for an active recording job."""
     event_id: str
+    track_key: Optional[str]
     writer: cv2.VideoWriter
     frames_remaining: int
     path: Path
+    mode: str = "active"  # "active" (recording presence) or "tail" (post-event finish)
+    frames_written: int = 0
 
 class ClipRecorder(Recorder):
-    """Records video clips with pre/post event buffering using a ring buffer."""
+    """Records video clips dynamically capturing the true duration of an event."""
 
     def __init__(self, output_dir: Path) -> None:
         self.output_dir = output_dir
@@ -37,14 +40,17 @@ class ClipRecorder(Recorder):
         self.target_fps = config.CLIP_TARGET_FPS
         self.pre_sec = config.CLIP_PRE_EVENT_SECONDS
         self.post_sec = config.CLIP_POST_EVENT_SECONDS
+        self.max_duration = config.CLIP_MAX_DURATION_SECONDS
         
         self.frame_interval = 1.0 / self.target_fps if self.target_fps > 0 else 0.0
         self.last_frame_time = 0.0
         
-        # Max frames to keep for the pre-event buffer
+        # Calculate maximum limits
         self.max_buffer_len = int(self.target_fps * self.pre_sec)
-        self.buffer: collections.deque = collections.deque(maxlen=self.max_buffer_len)
+        self.post_frames = int(self.target_fps * self.post_sec)
+        self.max_total_frames = int(self.target_fps * self.max_duration)
         
+        self.buffer: collections.deque = collections.deque(maxlen=self.max_buffer_len)
         self.active_jobs: dict[str, ClipJob] = {}
 
     def _build_output_path(self, event: Event) -> Path:
@@ -53,6 +59,20 @@ class ClipRecorder(Recorder):
         base = self.output_dir / day
         base.mkdir(parents=True, exist_ok=True)
         return base / f"{event.event_id}{config.CLIP_FILE_EXTENSION}"
+
+    def update_track_states(self, states: dict[str, str]) -> None:
+        """
+        Signals the recorder with the current state of tracked faces.
+        If a face transitions out of 'ACTIVE', its clip job moves into 'tail' mode.
+        """
+        for job in list(self.active_jobs.values()):
+            if job.mode == "active" and job.track_key is not None:
+                current_state = states.get(job.track_key)
+                if current_state != "ACTIVE":
+                    job.mode = "tail"
+                    job.frames_remaining = self.post_frames
+                    self._log.debug("Event %s (track %s) ended, starting %d frame tail", 
+                                    job.event_id[:8], job.track_key, job.frames_remaining)
 
     def feed_frame(self, frame: np.ndarray) -> list[tuple[str, Path]]:
         """
@@ -67,28 +87,35 @@ class ClipRecorder(Recorder):
             
         self.last_frame_time = now
         saved_frame = frame.copy()
-        
         self.buffer.append(saved_frame)
         
         completed = []
-        # Update jobs
         for job_id, job in list(self.active_jobs.items()):
             job.writer.write(saved_frame)
-            job.frames_remaining -= 1
+            job.frames_written += 1
             
-            if job.frames_remaining <= 0:
+            # Check if we hit the hard ceiling for duration (protect disk)
+            time_to_close = False
+            if job.frames_written >= self.max_total_frames:
+                self._log.warning("Event %s reached max duration limit (%.1fs). Forcing closure.", 
+                                  job_id[:8], self.max_duration)
+                time_to_close = True
+            elif job.mode == "tail":
+                job.frames_remaining -= 1
+                if job.frames_remaining <= 0:
+                    time_to_close = True
+                    self._log.debug("Completed clip job for event %s", job_id[:8])
+            
+            if time_to_close:
                 job.writer.release()
                 completed.append((job.event_id, job.path))
                 del self.active_jobs[job_id]
-                self._log.debug("Completed clip job for event %s", job_id[:8])
                 
         return completed
 
     def on_event(self, event: Event, frame: np.ndarray) -> Optional[Path]:
         """
         Start an active recording job for the emitted event.
-        Always returns None immediately, as clip finishes synchronously in chunks
-        during subsequent main loop iterations over time.
         """
         out_path = self._build_output_path(event)
         h, w = frame.shape[:2]
@@ -99,26 +126,29 @@ class ClipRecorder(Recorder):
         
         if not writer.isOpened():
             self._log.error("VideoWriter failed to open for event %s path %s", event.event_id, out_path)
-            # Cancel job safely without returning a corrupted path later
             return None
         
         # 1. Flush the current ring buffer into the writer
+        frames_flushed = 0
         for b_frame in list(self.buffer):
             writer.write(b_frame)
+            frames_flushed += 1
             
-        # 2. Setup the job to gather post-event frames
-        post_frames = int(self.target_fps * self.post_sec)
+        # 2. Setup the job. If no track_key exists in the event, fallback to legacy trailing immediately.
+        mode = "active" if event.track_key else "tail"
         
         job = ClipJob(
             event_id=event.event_id,
+            track_key=event.track_key,
             writer=writer,
-            frames_remaining=post_frames,
-            path=out_path
+            frames_remaining=self.post_frames if mode == "tail" else 0,
+            path=out_path,
+            mode=mode,
+            frames_written=frames_flushed
         )
         self.active_jobs[event.event_id] = job
         
-        self._log.debug("Started clip job for event %s (pre=%d frames, post=%d frames)", 
-                        event.event_id[:8], len(self.buffer), post_frames)
+        self._log.debug("Started clip job for event %s, track_key=%s, mode=%s", 
+                        event.event_id[:8], event.track_key, mode)
         
-        # We don't return the path here because the clip is not finished yet
         return None

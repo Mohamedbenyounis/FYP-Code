@@ -290,6 +290,11 @@ def _processing_loop(
 
         events = event_manager.update(per_face_obs)
 
+        # Notify clip recorder of active presences
+        if config.CLIP_ENABLED:
+            with clip_lock:
+                clip_recorder.update_track_states(event_manager.track_states())
+
         for event in events:
             event_repo.add_event(event)
 
