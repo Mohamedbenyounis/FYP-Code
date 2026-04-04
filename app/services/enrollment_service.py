@@ -1,8 +1,8 @@
 """
-Shared enrollment orchestration service (Iteration 5).
+Shared enrollment orchestration service (Iteration 13).
 
 This module centralises face enrollment logic so CLI and Flask routes do not
-duplicate detector/recogniser/DB workflows.
+duplicate detector/recogniser/DB workflows. Contains atomic multi-frame enforcement.
 """
 
 from __future__ import annotations
@@ -31,14 +31,23 @@ class EnrollmentResult:
 
 def enroll_from_image(name: str, image: np.ndarray) -> EnrollmentResult:
     """
-    Enroll a person from an in-memory BGR image.
+    Legacy wrapper: Enroll a person from a single in-memory BGR image.
+    Uses the multi-image architecture under the hood with a minimum constraint of 1.
+    """
+    return enroll_from_multiple_images(name, [image], min_captures=1)
 
-    Returns an EnrollmentResult with success flag and human-readable message.
+
+def enroll_from_multiple_images(
+    name: str, images: list[np.ndarray], min_captures: int = 3
+) -> EnrollmentResult:
+    """
+    Enroll a person atomically from a list of images.
+    Requires at least `min_captures` successful face extracts before saving to DB.
     """
     log = get_logger()
 
-    if image is None or image.size == 0:
-        return EnrollmentResult(success=False, message="Invalid or empty image")
+    if not images:
+        return EnrollmentResult(success=False, message="No images provided")
 
     try:
         detector = SCRFDDetector()
@@ -46,24 +55,51 @@ def enroll_from_image(name: str, image: np.ndarray) -> EnrollmentResult:
     except ModelNotFoundError as exc:
         return EnrollmentResult(success=False, message=f"Model missing: {exc}")
 
-    detections = detector.detect(image)
-    if not detections:
-        return EnrollmentResult(success=False, message="No face detected")
+    valid_embeddings = []
+    failed_reasons = []
 
-    face = select_highest_score(detections)
-    if face is None:
-        return EnrollmentResult(success=False, message="Face selection failed")
+    # 1. Evaluate all images in memory
+    for i, img in enumerate(images):
+        if img is None or img.size == 0:
+            failed_reasons.append(f"Image {i+1} is broken")
+            continue
 
-    crop = None
-    if face.keypoints is not None:
-        crop = align_face_5point(image, face.keypoints)
-    if crop is None:
-        crop = safe_crop_face(image, face.bbox)
-    if crop is None or crop.size == 0:
-        return EnrollmentResult(success=False, message="Face crop failed")
+        detections = detector.detect(img)
+        if not detections:
+            failed_reasons.append(f"Image {i+1}: No face detected")
+            continue
+            
+        if len(detections) > 1:
+            failed_reasons.append(f"Image {i+1}: Multiple faces detected")
+            continue
 
-    embedding = recogniser.embed(crop)
+        face = select_highest_score(detections)
+        if face is None:
+            continue
 
+        crop = None
+        if face.keypoints is not None:
+            crop = align_face_5point(img, face.keypoints)
+        if crop is None:
+            crop = safe_crop_face(img, face.bbox)
+        if crop is None or crop.size == 0:
+            failed_reasons.append(f"Image {i+1}: Face crop failed")
+            continue
+
+        embedding = recogniser.embed(crop)
+        valid_embeddings.append(embedding)
+
+    # 2. Enforce minimum quality threshold
+    if len(valid_embeddings) < min_captures:
+        err_msg = (
+            f"Only {len(valid_embeddings)}/{len(images)} valid captures obtained. "
+            f"{min_captures} required. Needs clear, single front-facing portraits."
+        )
+        if failed_reasons:
+            log.warning("Enrollment multi-image failures: %s", " | ".join(failed_reasons))
+        return EnrollmentResult(success=False, message=err_msg)
+
+    # 3. Commit atomically to SQLite
     conn = init_db(config.DB_PATH)
     try:
         person_repo = SQLitePersonRepository(conn)
@@ -73,23 +109,28 @@ def enroll_from_image(name: str, image: np.ndarray) -> EnrollmentResult:
         if existing is not None:
             person_id = existing.person_id
         else:
-            person = person_repo.add_person(name, embedding)
+            person = person_repo.add_person(name, valid_embeddings[0]) # init with first
             person_id = person.person_id
 
-        emb_repo.add_embedding(person_id, embedding)
+        # Insert all new embeddings
+        for emb in valid_embeddings:
+            emb_repo.add_embedding(person_id, emb)
+            
+        # Re-calc median template
         all_embeddings = emb_repo.get_embeddings(person_id)
         template = make_template(all_embeddings)
         person_repo.update_embedding(person_id, template)
 
-        log.info("Enrollment service updated '%s' (id=%d)", name, person_id)
+        log.info("Multi-enrollment updated '%s' with %d shots (id=%d)", 
+                 name, len(valid_embeddings), person_id)
         return EnrollmentResult(
             success=True,
-            message="Enrollment completed",
+            message=f"Successfully enrolled {name} with {len(valid_embeddings)} captures.",
             person_id=person_id,
         )
     except Exception as exc:  # noqa: BLE001
-        log.exception("Enrollment service failed")
-        return EnrollmentResult(success=False, message=f"Enrollment error: {exc}")
+        log.exception("Multi-enrollment atomic commit failed")
+        return EnrollmentResult(success=False, message=f"Commit error: {exc}")
     finally:
         conn.close()
 

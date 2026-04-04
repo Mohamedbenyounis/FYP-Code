@@ -294,7 +294,10 @@ def test_live_frame_route(tmp_path, monkeypatch):
         shm.buf[0] = 0
         shm.buf[1:5] = size.to_bytes(4, 'little')
         shm.buf[5:9] = (1).to_bytes(4, 'little')  # seq=1
-        shm.buf[9:9+size] = payload
+        import struct
+        import time
+        shm.buf[9:17] = struct.pack('<d', time.monotonic())
+        shm.buf[17:17+size] = payload
         
         ok_res = client.get("/live/frame")
         assert ok_res.status_code == 200

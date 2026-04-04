@@ -1,5 +1,17 @@
 # SecureVision Build Log
 
+## 2026-04 — Iteration 13: Guided Multi-Pose Enrollment (Complete)
+
+### Purpose
+Upgrade the core enrollment pipeline to natively enforce multi-image evaluation, ensuring highly-accurate face recognition profiles, alongside establishing a guided WebCamera capture interface directly within the Flask Dashboard.
+
+### What Changed
+- **app/services/enrollment_service.py**: Migrated to batch `enroll_from_multiple_images` function which enforces a strict minimum successful capture threshold preventing single blurry frames from persisting to the identity dataset.
+- **app/web/routes.py**: Extended the `/enroll` POST handler array processing. It now detects multipart FormData containing both native file uploads and captured Camera Blobs.
+- **app/web/templates/enroll.html**: Engineered a vanilla HTML5/JS guided camera workflow. Triggers 5 distinct textual poses, drawing hidden `<canvas>` data incrementally into memory blobs to prevent massive Base64 payload crashing schemas. 
+- **tests/test_enrollment_service.py**: Prototyped missing unit tests evaluating atomic enrollment. Enforces logic where 3/5 valid images guarantees enrollment while 2/5 aborts correctly.
+- **Docs**: Published `ENROLLMENT_UI_LOG.md` explaining constraints and architectural behaviors for the new Camera UI.
+
 ## 2026-04 — Iteration 12: Dashboard & UI Upgrades (Complete)
 
 ### Purpose
@@ -20,6 +32,26 @@ rewrite or necessitating RTSP streams.
 ### Validation
 ```bash
 pytest tests/ -v  # tests updated, 164 passed
+```
+
+---
+
+## 2026-04 — Bonus Iteration: RTSP Camera Integration (Complete)
+
+### Purpose
+Enable SecureVision to process frames from remote RTSP network streams (e.g., Raspberry Pi with Camera Module v3) instead of relying solely on local USB/built-in webcams. This allows for physical decoupling of the camera and the processing host.
+
+### What Changed
+- **app/camera/base.py**: Expanded the `CameraSource` interface with a `reconnect()` method to handle network stream drops.
+- **app/camera/rtsp.py**: Implemented the `RTSPCamera` adapter using OpenCV's FFmpeg backend with low-latency buffer hints.
+- **app/main.py**: Integrated dynamic camera selection based on `SV_CAMERA_TYPE` and added robust reconnection orchestration.
+- **tests/test_camera_rtsp.py**: Added 12 unit tests covering RTSP ingestion, failure handling, retry logic, and config-based selection.
+- **reports/rtsp_vs_webcam_evaluation.md**: Published an empirical comparison of local vs. remote ingestion performance (throughput and latency).
+- **Docs**: Published `RTSP_INTEGRATION_LOG.md` detailing Pi-side setup and configuration.
+
+### Validation
+```bash
+python -m pytest tests/test_camera_rtsp.py  # All 12 RTSP tests passed
 ```
 
 ## 2026-04 — Iteration 11b: Tracking Integration for Alert Suppression Fix (Complete)

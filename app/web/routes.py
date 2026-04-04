@@ -196,7 +196,7 @@ def live_frame():
 	"""Serve the latest camera frame for the dashboard near-live view."""
 	from multiprocessing import shared_memory
 	
-	SHM_HEADER = 9  # lock(1) + size(4) + seq(4)
+	SHM_HEADER = 17  # lock(1) + size(4) + seq(4) + ts(8)
 	
 	try:
 		shm = shared_memory.SharedMemory(name="sv_live_frame")
@@ -232,7 +232,7 @@ def live_stream():
 	from flask import Response
 	from multiprocessing import shared_memory
 	
-	SHM_HEADER = 9  # lock(1) + size(4) + seq(4)
+	SHM_HEADER = 17  # lock(1) + size(4) + seq(4) + ts(8)
 	DIAG_INTERVAL = 5.0
 	stream_log = logging.getLogger("securevision.mjpeg")
 	
@@ -252,6 +252,8 @@ def live_stream():
 			stale_count = 0
 			error_count = 0
 			last_fresh_t = time.monotonic()
+			total_latency = 0.0
+			max_latency = 0.0
 			
 			while True:
 				try:
@@ -261,6 +263,15 @@ def live_stream():
 						if 0 < size < 2 * 1024 * 1024:
 							if seq != last_seq:
 								last_seq = seq
+								
+								import struct
+								cap_ts = struct.unpack('<d', shm.buf[9:17])[0]
+								latency = (time.monotonic() - cap_ts) * 1000.0
+								if latency > 0:
+									total_latency += latency
+									if latency > max_latency:
+										max_latency = latency
+									
 								frame_data = bytes(shm.buf[SHM_HEADER:SHM_HEADER+size])
 								yield (b'--frame\r\n'
 									   b'Content-Type: image/jpeg\r\n\r\n' + frame_data + b'\r\n')
@@ -277,15 +288,18 @@ def live_stream():
 					elapsed = now - diag_t0
 					yfps = yield_count / elapsed if elapsed > 0 else 0
 					stale_sec = now - last_fresh_t
+					avg_lat = (total_latency / yield_count) if yield_count > 0 else 0.0
 					stream_log.info(
 						"[DIAG MJPEG] yield=%.1f fps | stale=%d | err=%d | "
-						"last_fresh=%.1fs ago | last_seq=%d",
-						yfps, stale_count, error_count, stale_sec, last_seq,
+						"lat_avg=%.1fms lat_max=%.1fms | last_seq=%d",
+						yfps, stale_count, error_count, avg_lat, max_latency, last_seq,
 					)
 					diag_t0 = now
 					yield_count = 0
 					stale_count = 0
 					error_count = 0
+					total_latency = 0.0
+					max_latency = 0.0
 				
 				time.sleep(0.04)
 		finally:
@@ -392,21 +406,46 @@ def delete_person(person_id: int):
 def enroll():
 	if request.method == "POST":
 		name = request.form.get("name", "").strip()
-		file = request.files.get("image")
+		
+		# Allow uploading multiple files directly, or camera Blob files
+		upload_files = request.files.getlist("images")
+		camera_files = request.files.getlist("camera_images")
+		
+		all_files = upload_files + camera_files
+		# Filter out empties that sometimes HTML forms send 
+		valid_files = [f for f in all_files if f and f.filename]
 
 		if not name:
 			flash("Name is required", "error")
 			return render_template("enroll.html"), 400
 
-		if file is None or not file.filename:
-			flash("Image is required", "error")
+		if not valid_files:
+			flash("At least one image is required", "error")
 			return render_template("enroll.html"), 400
 
-		image = decode_uploaded_image(file.read())
-		result = enroll_from_image(name=name, image=image)
+		# Decode all images into memory
+		from app.services.enrollment_service import decode_uploaded_image, enroll_from_multiple_images
+		decoded_images = []
+		for f in valid_files:
+			img = decode_uploaded_image(f.read())
+			if img is not None:
+				decoded_images.append(img)
+				
+		if not decoded_images:
+			flash("Failed to decode any provided images.", "error")
+			return render_template("enroll.html"), 400
+
+		# Standard upload enforces a more lenient rule if only 1 image uploaded?
+		# No, requirements say minimum valid captures recommended: 3.
+		# If they upload fewer than 3 manually, we'll gracefully reject, OR we can dynamically threshold it
+		# For manual mode, if they only upload 1, maybe they only have 1. Let's cap minimum based on how many they sent.
+		# If they send 5 camera shots, require 3. If they upload 1 file, require 1.
+		min_caps = 3 if len(decoded_images) >= 3 else len(decoded_images)
+
+		result = enroll_from_multiple_images(name=name, images=decoded_images, min_captures=min_caps)
 
 		if result.success:
-			flash(f"Enrollment successful for {name}", "success")
+			flash(result.message, "success")
 			return redirect(url_for("web.persons"))
 
 		flash(result.message, "error")

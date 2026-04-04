@@ -1,17 +1,234 @@
 {% extends 'base.html' %}
 {% block title %}Enroll Person - SecureVision{% endblock %}
+
 {% block content %}
+<style>
+/* Scoped styles for the enrollment page specifically */
+.mode-toggle { margin-bottom: 20px; text-align: center; }
+.mode-toggle button { padding: 10px 20px; font-size: 1rem; margin: 0 5px; cursor: pointer; border-radius: 4px; border: 1px solid #ccc; background: #eee; }
+.mode-toggle button.active { background: #3498db; color: #fff; border-color: #2980b9; }
+
+.section-container { display: none; margin-top: 20px; }
+.section-container.active { display: block; }
+
+#camera-container { text-align: center; margin-top: 15px; }
+#video-feed { width: 100%; max-width: 600px; border-radius: 8px; background: #000; display: none; }
+#capture-btn { display: none; margin-top: 15px; font-size: 1.1rem; padding: 12px 24px; background: #27ae60; color: white; border: none; border-radius: 4px; cursor: pointer; }
+#capture-btn:disabled { background: #95a5a6; cursor: not-allowed; }
+
+.capture-status { font-weight: bold; margin: 15px 0; font-size: 1.2rem; min-height: 28px; color: #2c3e50;}
+.snapshot-deck { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 15px; justify-content: center; }
+.snapshot-deck img { width: 80px; height: 80px; object-fit: cover; border-radius: 4px; border: 2px solid #bdc3c7; }
+
+/* The final submit row */
+.submit-row { margin-top: 30px; text-align: center; }
+.submit-row button { padding: 15px 30px; font-size: 1.2rem; background: #e67e22; color: white; border: none; border-radius: 5px; cursor: pointer;}
+</style>
+
 <section class="card">
   <h2>Enroll Person</h2>
-  <p>Upload one clear face image and provide a display name.</p>
-  <form method="post" enctype="multipart/form-data" class="form-grid">
-    <label>Name
-      <input type="text" name="name" required>
+  
+  <div class="mode-toggle">
+    <button type="button" id="btn-mode-upload" class="active" onclick="switchMode('upload')">Manual Upload</button>
+    <button type="button" id="btn-mode-camera" onclick="switchMode('camera')">Guided Camera</button>
+  </div>
+
+  <form id="enrollForm" method="post" enctype="multipart/form-data" class="form-grid">
+    <label style="width:100%; max-width:400px; margin: 0 auto; display:block; text-align:center;">Name:
+      <input type="text" name="name" id="person-name" required placeholder="Enter Full Name" style="width:100%; margin-top:8px;">
     </label>
-    <label>Image
-      <input type="file" name="image" accept="image/*" required>
-    </label>
-    <button type="submit">Enroll</button>
+
+    <!-- UPLOAD MODE -->
+    <div id="section-upload" class="section-container active">
+      <p style="text-align:center; color:#7f8c8d;">Upload 3 to 5 clear face images for best results.</p>
+      <label style="text-align:center; display:block; margin:20px 0;">Images:
+        <input type="file" name="images" multiple accept="image/*">
+      </label>
+    </div>
+
+    <!-- CAMERA MODE -->
+    <div id="section-camera" class="section-container">
+      <div id="camera-container">
+        <p style="color:#7f8c8d; margin-bottom:10px;">Ensure your face is well lit. Follow the on-screen prompts.</p>
+        <button type="button" id="start-cam-btn" onclick="startCamera()" style="padding:10px 20px;">Open Browser Camera</button>
+        
+        <video id="video-feed" autoplay playsinline muted></video>
+        <div id="capture-prompt" class="capture-status"></div>
+        <button type="button" id="capture-btn" onclick="takeSnapshot()">Take Snapshot</button>
+
+        <!-- Visual feedback for captured images -->
+        <div id="deck" class="snapshot-deck"></div>
+      </div>
+      <canvas id="hidden-canvas" style="display:none;"></canvas>
+    </div>
+
+    <div class="submit-row">
+      <button type="submit" id="final-submit-btn">Submit Enrollment</button>
+    </div>
   </form>
 </section>
+
+<script>
+// --- Mode Switching ---
+let currentMode = 'upload';
+function switchMode(mode) {
+  currentMode = mode;
+  document.getElementById('btn-mode-upload').classList.toggle('active', mode === 'upload');
+  document.getElementById('btn-mode-camera').classList.toggle('active', mode === 'camera');
+  document.getElementById('section-upload').classList.toggle('active', mode === 'upload');
+  document.getElementById('section-camera').classList.toggle('active', mode === 'camera');
+  
+  if (mode === 'upload') {
+    stopCamera();
+    document.getElementById('final-submit-btn').style.display = 'inline-block';
+  } else {
+    // Hide submit until sequence finishes in camera mode
+    document.getElementById('final-submit-btn').style.display = 'none';
+  }
+}
+
+// --- Camera Sequence State ---
+const capturePrompts = [
+  "Pose 1/5: Look straight ahead",
+  "Pose 2/5: Turn slightly right",
+  "Pose 3/5: Turn slightly left",
+  "Pose 4/5: Tilt slightly down",
+  "Pose 5/5: Tilt slightly up"
+];
+let currentStep = 0;
+let videoStream = null;
+const capturedBlobs = []; // Native JS blobs preventing massive Base64 hidden inputs
+
+// --- Camera Tools ---
+async function startCamera() {
+  const video = document.getElementById('video-feed');
+  const btnStart = document.getElementById('start-cam-btn');
+  const btnCapture = document.getElementById('capture-btn');
+  const promptTxt = document.getElementById('capture-prompt');
+  
+  try {
+    videoStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+    video.srcObject = videoStream;
+    video.style.display = 'inline-block';
+    btnStart.style.display = 'none';
+    btnCapture.style.display = 'inline-block';
+    
+    // Reset State
+    currentStep = 0;
+    capturedBlobs.length = 0;
+    document.getElementById('deck').innerHTML = '';
+    promptTxt.innerText = capturePrompts[currentStep];
+    
+  } catch (err) {
+    alert("Camera permission denied or camera not found.");
+    console.error(err);
+  }
+}
+
+function stopCamera() {
+  if (videoStream) {
+    videoStream.getTracks().forEach(track => track.stop());
+    videoStream = null;
+  }
+  document.getElementById('video-feed').style.display = 'none';
+  document.getElementById('start-cam-btn').style.display = 'inline-block';
+  document.getElementById('capture-btn').style.display = 'none';
+  document.getElementById('capture-prompt').innerText = "";
+}
+
+function takeSnapshot() {
+  if(currentStep >= capturePrompts.length) return;
+
+  const video = document.getElementById('video-feed');
+  const canvas = document.getElementById('hidden-canvas');
+  const ctx = canvas.getContext('2d');
+  const deck = document.getElementById('deck');
+
+  // Match canvas size to exact video source physical bounds
+  canvas.width = video.videoWidth;
+  canvas.height = video.videoHeight;
+  ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+  // Convert canvas to a lightweight Blob locally instead of huge Base64 Strings!
+  canvas.toBlob(blob => {
+    // 1. Store internally
+    capturedBlobs.push(blob);
+
+    // 2. Add visual thumbnail to deck
+    const imgUrl = URL.createObjectURL(blob);
+    const imgEl = document.createElement('img');
+    imgEl.src = imgUrl;
+    deck.appendChild(imgEl);
+
+    // 3. Advance to next state
+    currentStep++;
+    if (currentStep < capturePrompts.length) {
+      document.getElementById('capture-prompt').innerText = capturePrompts[currentStep];
+    } else {
+      // Finished all 5!
+      document.getElementById('capture-prompt').innerText = "Sequence Complete! ✅";
+      document.getElementById('capture-prompt').style.color = "#27ae60";
+      document.getElementById('capture-btn').style.display = 'none';
+      stopCamera();
+      
+      // Explicitly show submit button as requested
+      document.getElementById('final-submit-btn').style.display = 'inline-block';
+    }
+  }, 'image/jpeg', 0.85); // Compress natively!
+}
+
+// --- Form Intercept to Append Blobs ---
+document.getElementById('enrollForm').addEventListener('submit', function(e) {
+  if (currentMode === 'camera') {
+    e.preventDefault(); // Stop standard submit
+    if (capturedBlobs.length === 0) {
+      alert("Please capture images first.");
+      return;
+    }
+    
+    // Construct programmatic FormData matching the Flask getlist expectations!
+    const formData = new FormData(this);
+    
+    // Natively append blobs directly, completely avoiding Base64 size limits
+    capturedBlobs.forEach((blob, i) => {
+      formData.append('camera_images', blob, `cam_capture_${i}.jpg`);
+    });
+
+    // Send via fetch 
+    const submitBtn = document.getElementById('final-submit-btn');
+    submitBtn.innerText = "Processing Details...";
+    submitBtn.disabled = true;
+
+    fetch("{{ url_for('web.enroll') }}", {
+      method: "POST",
+      body: formData
+    })
+    .then(response => {
+      // Render back the resulting payload from flask (it handles success/flash directly)
+      if(response.redirected){
+        window.location.href = response.url;
+      } else {
+        return response.text();
+      }
+    })
+    .then(htmlStr => {
+      if(htmlStr) {
+        // Just reload the document entirely to let Flask's flash messages handle error painting.
+        document.open();
+        document.write(htmlStr);
+        document.close();
+      }
+    })
+    .catch(err => {
+      alert("Enrollment upload failed. Try again.");
+      console.error(err);
+      submitBtn.innerText = "Submit Enrollment";
+      submitBtn.disabled = false;
+    });
+  }
+});
+
+// Init
+document.getElementById('section-camera').classList.remove('active');
+</script>
 {% endblock %}
