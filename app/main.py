@@ -20,6 +20,7 @@ import cv2
 import numpy as np
 
 from app import config
+from app.camera.rtsp import RTSPCamera
 from app.camera.webcam import WebcamCamera
 from app.core.multi_event_manager import MultiEntityEventManager
 from app.core.models import Observation
@@ -68,8 +69,9 @@ _ml_status_colour: tuple = (180, 180, 180)
 # Byte 0:     lock flag (0=ready, 1=writing)
 # Bytes 1-4:  JPEG payload size (uint32 LE)
 # Bytes 5-8:  sequence number (uint32 LE)
-# Bytes 9+:   JPEG payload
-SHM_HEADER_SIZE = 9
+# Bytes 9-16: capture timestamp (double LE)
+# Bytes 17+:  JPEG payload
+SHM_HEADER_SIZE = 17
 SHM_TOTAL_SIZE = 2 * 1024 * 1024  # 2 MB
 
 
@@ -93,6 +95,7 @@ class _StreamDiag:
         self.jpeg_total_bytes = 0
         self.shm_writes = 0
         self.shm_skips = 0
+        self.queue_drops = 0
         self.ml_frames = 0
 
     def tick_cam_read(self, elapsed_ms: float):
@@ -111,6 +114,9 @@ class _StreamDiag:
     def tick_shm_skip(self):
         self.shm_skips += 1
 
+    def tick_queue_drop(self):
+        self.queue_drops += 1
+
     def tick_ml(self):
         self.ml_frames += 1
 
@@ -126,9 +132,9 @@ class _StreamDiag:
         ml_fps = self.ml_frames / elapsed if elapsed > 0 else 0
         log.info(
             "[DIAG %s] cam=%.1f fps (avg=%.1fms max=%.1fms) | "
-            "enc=%.1f fps (avg=%.0f KB) | shm_w=%d skip=%d | ml=%.1f fps",
+            "enc=%.1f fps (avg=%.0f KB) | shm_w=%d skip=%d q_drop=%d | ml=%.1f fps",
             self.label, cam_fps, cam_avg, cam_max,
-            enc_fps, avg_kb, self.shm_writes, self.shm_skips, ml_fps,
+            enc_fps, avg_kb, self.shm_writes, self.shm_skips, self.queue_drops, ml_fps,
         )
         self._reset()
 
@@ -405,7 +411,22 @@ def main() -> int:
     )
 
     # Camera -----------------------------------------------------------
-    camera = WebcamCamera(device_index=config.CAMERA_INDEX)
+    camera_type = config.CAMERA_TYPE.strip().lower()
+    log.info("Camera source: %s", camera_type)
+
+    if camera_type == "rtsp":
+        if not config.RTSP_URL:
+            log.error(
+                "CAMERA_TYPE is 'rtsp' but SV_RTSP_URL is empty — "
+                "set SV_RTSP_URL to the stream address and retry."
+            )
+            conn.close()
+            return 1
+        camera = RTSPCamera(config.RTSP_URL)
+    else:
+        # Default: local webcam (backward compatible)
+        camera = WebcamCamera(device_index=config.CAMERA_INDEX)
+
     if not camera.is_opened():
         log.error("Camera failed to open — exiting")
         conn.close()
@@ -432,6 +453,7 @@ def main() -> int:
             live_shm.buf[0] = 0
             live_shm.buf[1:5] = (0).to_bytes(4, 'little')
             live_shm.buf[5:9] = (0).to_bytes(4, 'little')  # seq=0
+            live_shm.buf[9:17] = (0).to_bytes(8, 'little') # timestamp=0.0
         except FileExistsError:
             live_shm = shared_memory.SharedMemory(name="sv_live_frame")
 
@@ -499,7 +521,7 @@ def main() -> int:
                 try:
                     frame_queue.put_nowait(frame.copy())
                 except queue.Full:
-                    pass  # Drop stale frame — slow thread is busy
+                    fast_diag.tick_queue_drop()
 
             # --- Draw overlays and publish to dashboard ----------------
             if config.SHOW_PREVIEW or config.LIVE_VIEW_ENABLED:
@@ -552,6 +574,8 @@ def main() -> int:
                                 live_shm.buf[0] = 1  # writing flag
                                 live_shm.buf[1:5] = size.to_bytes(4, 'little')
                                 live_shm.buf[5:9] = (shm_seq & 0xFFFFFFFF).to_bytes(4, 'little')
+                                import struct
+                                live_shm.buf[9:17] = struct.pack('<d', t_read_start)
                                 live_shm.buf[SHM_HEADER_SIZE:SHM_HEADER_SIZE+size] = payload
                                 live_shm.buf[0] = 0  # done
                                 fast_diag.tick_shm_write()
