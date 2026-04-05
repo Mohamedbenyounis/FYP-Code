@@ -30,7 +30,7 @@ from app.db.repo import (
 	SQLiteAlertRepository,
 )
 from app.services.enrollment_service import decode_uploaded_image, enroll_from_image
-from app.web.auth import login_required, login_user, logout_user
+from app.web.auth import login_required, role_required, login_user, logout_user
 
 
 web_bp = Blueprint("web", __name__)
@@ -113,10 +113,7 @@ def _decorate_event_for_display(event) -> None:
 		)
 	elif event.person_name and event.status == "unauthorised":
 		event.display_state = "low_confidence_match"
-		event.decision_reason = (
-			"Matched identity but below authorisation threshold "
-			f"(< {config.AUTHORISATION_THRESHOLD:.3f})."
-		)
+		event.decision_reason = "Matched identity but unauthorised (low confidence)."
 	else:
 		event.display_state = "unknown"
 		event.decision_reason = (
@@ -137,7 +134,7 @@ def login():
 			flash("Invalid username or password", "error")
 			return render_template("login.html"), 401
 
-		login_user(admin_id=admin["id"], username=admin["username"])
+		login_user(user_id=admin["id"], username=admin["username"], role=admin.get("role", "admin"))
 		return redirect(url_for("web.dashboard"))
 
 	return render_template("login.html")
@@ -153,6 +150,7 @@ def logout():
 @login_required
 def dashboard():
 	person_repo, event_repo, _, alert_repo = _repos()
+	
 	total_persons = person_repo.count_persons()
 	total_events = event_repo.count_events()
 	authorised_count = event_repo.count_events(status="authorised")
@@ -164,15 +162,36 @@ def dashboard():
 	recent_alerts = alert_repo.list_alerts(limit=5)
 	total_alerts = alert_repo.count_alerts()
 	
-	# Compute 24-hour analytics
-	yesterday = datetime.now(timezone.utc) - timedelta(hours=24)
-	events_24h = event_repo.count_events_since(yesterday)
-	auth_24h = event_repo.count_events_since(yesterday, status="authorised")
-	unauth_24h = event_repo.count_events_since(yesterday, status="unauthorised")
-	alerts_24h = alert_repo.count_alerts_since(yesterday)
+	period = request.args.get("period", "day")
+	now = datetime.now(timezone.utc)
+	
+	if period == "day":
+		local_now = now.astimezone()
+		local_midnight = local_now.replace(hour=0, minute=0, second=0, microsecond=0)
+		since_dt = local_midnight.astimezone(timezone.utc)
+	elif period == "week":
+		since_dt = now - timedelta(days=7)
+	elif period == "month":
+		since_dt = now - timedelta(days=30)
+	elif period == "year":
+		since_dt = now - timedelta(days=365)
+	else:
+		since_dt = None
+
+	if since_dt:
+		kpi_events = event_repo.count_events_since(since_dt)
+		kpi_auth = event_repo.count_events_since(since_dt, status="authorised")
+		kpi_unauth = event_repo.count_events_since(since_dt, status="unauthorised")
+		kpi_alerts = alert_repo.count_alerts_since(since_dt)
+	else:
+		kpi_events = event_repo.count_events()
+		kpi_auth = event_repo.count_events(status="authorised")
+		kpi_unauth = event_repo.count_events(status="unauthorised")
+		kpi_alerts = alert_repo.count_alerts()
 
 	return render_template(
 		"dashboard.html",
+		period=period,
 		total_persons=total_persons,
 		total_events=total_events,
 		authorised_count=authorised_count,
@@ -180,10 +199,10 @@ def dashboard():
 		recent_events=recent_events,
 		recent_alerts=recent_alerts,
 		total_alerts=total_alerts,
-		events_24h=events_24h,
-		auth_24h=auth_24h,
-		unauth_24h=unauth_24h,
-		alerts_24h=alerts_24h,
+		kpi_events=kpi_events,
+		kpi_auth=kpi_auth,
+		kpi_unauth=kpi_unauth,
+		kpi_alerts=kpi_alerts,
 		recognition_match_threshold=config.RECOGNITION_MATCH_THRESHOLD,
 		authorisation_threshold=config.AUTHORISATION_THRESHOLD,
 		live_view_enabled=config.LIVE_VIEW_ENABLED,
@@ -390,7 +409,7 @@ def persons():
 
 
 @web_bp.route("/persons/<int:person_id>/delete", methods=["POST"])
-@login_required
+@role_required(["admin"])
 def delete_person(person_id: int):
 	person_repo, _, _, _ = _repos()
 	deleted = person_repo.delete_person(person_id)
@@ -402,7 +421,7 @@ def delete_person(person_id: int):
 
 
 @web_bp.route("/enroll", methods=["GET", "POST"])
-@login_required
+@role_required(["admin"])
 def enroll():
 	if request.method == "POST":
 		name = request.form.get("name", "").strip()
@@ -458,5 +477,70 @@ def enroll():
 @login_required
 def alerts():
 	_, _, _, alert_repo = _repos()
-	items = alert_repo.list_alerts(limit=200)
+	items = alert_repo.list_alerts(limit=200, include_acknowledged=True)
 	return render_template("alerts.html", alerts=items)
+
+
+@web_bp.route("/alerts/<int:alert_id>/acknowledge", methods=["POST"])
+@login_required
+def acknowledge_alert(alert_id: int):
+	_, _, _, alert_repo = _repos()
+	success = alert_repo.acknowledge_alert(alert_id)
+	if success:
+		if request.headers.get("X-Requested-With") == "XMLHttpRequest" or request.accept_mimetypes.accept_json:
+			return {"success": True, "message": "Alert acknowledged."}
+		flash("Alert acknowledged.", "success")
+	else:
+		if request.headers.get("X-Requested-With") == "XMLHttpRequest" or request.accept_mimetypes.accept_json:
+			return {"success": False, "message": "Alert not found."}, 404
+		flash("Alert not found.", "error")
+	
+	# Redirect back for standard form submissions
+	next_url = request.referrer or url_for("web.dashboard")
+	return redirect(next_url)
+
+
+@web_bp.route("/settings/users", methods=["GET", "POST"])
+@role_required(["admin"])
+def user_management():
+	_, _, admin_repo, _ = _repos()
+	
+	if request.method == "POST":
+		from werkzeug.security import generate_password_hash
+		username = request.form.get("username", "").strip()
+		password = request.form.get("password", "")
+		role = request.form.get("role", "operator").strip()
+		
+		val_role = role if role in ["admin", "operator"] else "operator"
+		
+		if not username or not password:
+			flash("Username and password required.", "error")
+		elif admin_repo.get_by_username(username):
+			flash("User already exists.", "error")
+		else:
+			pwd_hash = generate_password_hash(password)
+			admin_repo.add_user(username=username, password_hash=pwd_hash, role=val_role)
+			flash(f"User '{username}' created successfully.", "success")
+			return redirect(url_for("web.user_management"))
+
+	users = admin_repo.list_users()
+	return render_template("user_management.html", users=users)
+
+
+@web_bp.route("/delete_user/<int:user_id>", methods=["POST"])
+@role_required(["admin"])
+def delete_user(user_id: int):
+	from flask import session
+	_, _, admin_repo, _ = _repos()
+	
+	if user_id == session.get("user_id"):
+		flash("Action Denied: You cannot delete your own account.", "error")
+		return redirect(url_for("web.user_management"))
+		
+	deleted = admin_repo.delete_user(user_id)
+	if deleted:
+		flash("User deleted.", "success")
+	else:
+		flash("User not found.", "error")
+		
+	return redirect(url_for("web.user_management"))

@@ -1,0 +1,18 @@
+  <div class="global-ticker">
+    <!-- Optional: Add a rolling ticker logic here if active priority alerts exist -->
+  </div>
+
+  <div class="sys-clock" id="sys-clock">
+    <!-- Clock updated by JS -->
+    --:--:--
+  </div>
+
+  <script>
+    function updateClock() {
+      const now = new Date();
+      document.getElementById('sys-clock').innerText = now.toISOString().substring(11, 19) + ' UTC';
+    }
+    setInterval(updateClock, 1000);
+    updateClock();
+  </script>
+</header>

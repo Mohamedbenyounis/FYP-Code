@@ -90,6 +90,12 @@ def init_db(db_path: Path) -> sqlite3.Connection:
     # Migrate: add track_key column to events (Iteration 11b) ----------
     _migrate_events_add_track_key(conn, log)
 
+    # Migrate: add status to alerts (Iteration 12) --------------------
+    _migrate_alerts_add_status(conn, log)
+
+    # Migrate: add role to admin_users (Iteration 13 - RBAC) ----------
+    _migrate_admin_users_add_role(conn, log)
+
     # Bootstrap default admin if none exists (Iteration 5) ------------
     _bootstrap_default_admin(conn, log)
 
@@ -121,6 +127,29 @@ def _migrate_events_add_track_key(conn: sqlite3.Connection, log) -> None:
     if "track_key" not in columns:
         log.info("Migrating events table: adding track_key column (Iteration 11b)")
         conn.execute("ALTER TABLE events ADD COLUMN track_key TEXT;")
+        conn.commit()
+
+
+def _migrate_alerts_add_status(conn: sqlite3.Connection, log) -> None:
+    """Add status and acknowledged_at to alerts table."""
+    cursor = conn.execute("PRAGMA table_info(alerts);")
+    columns = {row[1] for row in cursor.fetchall()}
+
+    if "status" not in columns:
+        log.info("Migrating alerts table: adding status column")
+        conn.execute("ALTER TABLE alerts ADD COLUMN status TEXT NOT NULL DEFAULT 'new';")
+        conn.execute("ALTER TABLE alerts ADD COLUMN acknowledged_at TEXT;")
+        conn.commit()
+
+
+def _migrate_admin_users_add_role(conn: sqlite3.Connection, log) -> None:
+    """Add role column to admin_users table for RBAC."""
+    cursor = conn.execute("PRAGMA table_info(admin_users);")
+    columns = {row[1] for row in cursor.fetchall()}
+
+    if "role" not in columns:
+        log.info("Migrating admin_users table: adding role column")
+        conn.execute("ALTER TABLE admin_users ADD COLUMN role TEXT NOT NULL DEFAULT 'admin';")
         conn.commit()
 
 
@@ -161,9 +190,9 @@ def _bootstrap_default_admin(conn: sqlite3.Connection, log) -> None:
     now_iso = datetime.now(timezone.utc).isoformat()
 
     conn.execute(
-        "INSERT INTO admin_users (username, password_hash, created_at) "
-        "VALUES (?, ?, ?)",
-        (default_username, password_hash, now_iso),
+        "INSERT INTO admin_users (username, password_hash, role, created_at) "
+        "VALUES (?, ?, ?, ?)",
+        (default_username, password_hash, 'admin', now_iso),
     )
     conn.commit()
 

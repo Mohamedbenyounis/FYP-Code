@@ -1,0 +1,77 @@
+{% extends 'base.html' %}
+{% block title %}User Settings - SecureVision{% endblock %}
+{% block breadcrumb %}System Configuration / <strong>Users</strong>{% endblock %}
+
+{% block content %}
+<div class="split-grid" style="grid-template-columns: 1fr; margin-bottom: 24px;">
+  <div style="display: flex; justify-content: space-between; align-items: center;">
+    <h1 class="page-title" style="margin: 0;">User Management</h1>
+  </div>
+</div>
+
+<div class="split-grid">
+  <!-- User List (Left) -->
+  <div class="flex-col">
+    <h3>Active Accounts</h3>
+    {% if users %}
+      <div class="alert-list">
+        {% for u in users %}
+          <div class="alert-row priority-med" style="border-left-color: {% if u.role == 'admin' %}var(--status-warn){% else %}var(--status-ok){% endif %};">
+            <div class="alert-row-info">
+              <h4 style="display: flex; align-items: center; gap: 8px;">
+                {{ u.username }}
+                {% if u.role == 'admin' %}
+                  <span class="badge badge-warn">Admin</span>
+                {% else %}
+                  <span class="badge badge-ok">Operator</span>
+                {% endif %}
+              </h4>
+              <p>Created: {{ u.created_at | local_time }}</p>
+            </div>
+            
+            <div class="alert-row-actions">
+              {% if u.id != session.get('user_id') %}
+                <form method="POST" action="{{ url_for('web.delete_user', user_id=u.id) }}" onsubmit="return confirm('WARNING: Delete user {{ u.username }}?');" style="margin:0;">
+                  <button type="submit" class="btn btn-danger">Delete</button>
+                </form>
+              {% else %}
+                <span style="color: var(--text-muted); font-size: 0.85rem;">(Current Session)</span>
+              {% endif %}
+            </div>
+          </div>
+        {% endfor %}
+      </div>
+    {% else %}
+      <div class="empty-state">No users found.</div>
+    {% endif %}
+  </div>
+
+  <!-- Add User Form (Right) -->
+  <div class="flex-col">
+    <div class="kpi-card" style="margin: 0;">
+      <h3 style="margin-top: 0;">Create New User</h3>
+      <form method="POST" action="{{ url_for('web.user_management') }}" class="flex-col">
+        <label>
+          <span style="display: block; margin-bottom: 4px; font-size: 0.9rem; color: var(--text-secondary);">Username</span>
+          <input type="text" name="username" required placeholder="sys_operator_1" style="width: 100%;">
+        </label>
+        
+        <label>
+          <span style="display: block; margin-bottom: 4px; font-size: 0.9rem; color: var(--text-secondary);">Role</span>
+          <select name="role" required style="width: 100%;">
+            <option value="operator">Operator (Monitoring Only)</option>
+            <option value="admin">Administrator (Full Access)</option>
+          </select>
+        </label>
+        
+        <label>
+          <span style="display: block; margin-bottom: 4px; font-size: 0.9rem; color: var(--text-secondary);">Password</span>
+          <input type="password" name="password" required placeholder="••••••••" style="width: 100%;">
+        </label>
+        
+        <button type="submit" class="btn btn-primary" style="margin-top: 12px;">Create Account</button>
+      </form>
+    </div>
+  </div>
+</div>
+{% endblock %}

@@ -3,34 +3,75 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{% block title %}SecureVision{% endblock %}</title>
+  <title>{% block title %}SecureVision Dashboard{% endblock %}</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  {% block head %}{% endblock %}
 </head>
 <body>
-  <header class="topbar">
-    <h1><a href="{{ url_for('web.dashboard') }}">SecureVision Dashboard</a></h1>
-    <nav>
-      <a href="{{ url_for('web.dashboard') }}">Home</a>
-      <a href="{{ url_for('web.events') }}">Events</a>
-      <a href="{{ url_for('web.alerts') }}">Alerts</a>
-      <a href="{{ url_for('web.persons') }}">Persons</a>
-      <a href="{{ url_for('web.enroll') }}">Enroll</a>
-      <a href="{{ url_for('web.logout') }}">Logout</a>
-    </nav>
-  </header>
-
-  <main class="container">
-    {% with messages = get_flashed_messages(with_categories=true) %}
-      {% if messages %}
-        <div class="flash-wrap">
-          {% for category, message in messages %}
-            <div class="flash {{ category }}">{{ message }}</div>
-          {% endfor %}
+  <div class="app-container">
+    
+    {% include 'components/_sidebar.html' %}
+    
+    <div class="main-wrapper">
+      <header class="top-bar">
+        <div class="breadcrumb">
+          <strong>{% block breadcrumb %}Overview{% endblock %}</strong>
         </div>
-      {% endif %}
-    {% endwith %}
+        {% include 'components/_topbar.html' %}
+      </header>
+      
+      <main class="content-area">
+        {% with messages = get_flashed_messages(with_categories=true) %}
+          {% if messages %}
+            <div class="flash-wrap">
+              {% for category, message in messages %}
+                <div class="flash {{ category }}">{{ message }}</div>
+              {% endfor %}
+            </div>
+          {% endif %}
+        {% endwith %}
 
-    {% block content %}{% endblock %}
-  </main>
+        {% block content %}{% endblock %}
+      </main>
+    </div>
+  </div>
+
+  {% block scripts %}{% endblock %}
+
+  <script>
+    // Global AJAX handler for alert acknowledgement
+    document.addEventListener('submit', function(e) {
+      if (e.target && e.target.classList.contains('ajax-acknowledge-form')) {
+        e.preventDefault();
+        const form = e.target;
+        const alertRow = form.closest('.alert-row');
+        
+        fetch(form.action, {
+          method: 'POST',
+          headers: {
+            'X-Requested-With': 'XMLHttpRequest',
+            'Accept': 'application/json'
+          }
+        })
+        .then(response => response.json())
+        .then(data => {
+          if (data.success) {
+            // Smoothly remove the alert row
+            alertRow.style.transition = 'opacity 0.4s, transform 0.4s';
+            alertRow.style.opacity = '0';
+            alertRow.style.transform = 'translateX(20px)';
+            setTimeout(() => alertRow.remove(), 400);
+          } else {
+            alert('Error: ' + data.message);
+          }
+        })
+        .catch(err => {
+          console.error('Acknowledgement failed:', err);
+          alert('Network error. Please try again.');
+        });
+      }
+    });
+  </script>
 </body>
 </html>

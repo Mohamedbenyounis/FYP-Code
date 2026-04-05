@@ -1,0 +1,34 @@
+{# Requires 'event' object #}
+{% set card_status_class = 'status-ok' if event.status == 'authorised' else 'status-danger' if event.status == 'unauthorised' else 'status-warn' %}
+
+<div class="event-card {{ card_status_class }}">
+  <div class="event-card-img-wrap">
+    {% if event.snapshot_path %}
+      <img src="{{ url_for('web.event_snapshot', event_id=event.event_id) }}" alt="Snapshot">
+    {% else %}
+      <div style="display:flex; height:100%; align-items:center; justify-content:center; color: var(--text-muted);">No Snapshot</div>
+    {% endif %}
+  </div>
+  <div class="event-card-body">
+    <div class="event-card-header">
+      <span class="event-card-name">{{ event.person_name or 'Unknown Entity' }}</span>
+      {% set badge_label = 'Authorised' if event.status == 'authorised' else 'Unauthorised' if event.status == 'unauthorised' else 'Warning' %}
+      {% include 'components/_badge.html' with context %}
+    </div>
+    <div class="event-meta-time">
+      Detected: {{ event.created_at | local_time if event.created_at else 'Unknown Time' }}
+    </div>
+    <div class="event-meta-time" style="margin-top: 4px; font-size: 0.8rem;">
+      Score: {{ '%.3f'|format(event.score or 0.0) }} 
+      {% if event.person_name %} (Matched ID: {{ event.person_id }}) {% endif %}
+    </div>
+    {% if event.display_state == 'low_confidence_match' %}
+      <div style="font-size: 0.75rem; color: var(--status-danger); margin-top: 4px; font-weight: 500;">
+        Matched identity but unauthorised (low confidence).
+      </div>
+    {% endif %}
+    <div class="event-actions">
+      <a href="{{ url_for('web.event_detail', event_id=event.event_id) }}" class="btn btn-secondary" style="flex: 1; text-align: center; font-size: 0.85rem; padding: 6px;">View Full Context</a>
+    </div>
+  </div>
+</div>

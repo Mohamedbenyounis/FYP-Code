@@ -1,144 +1,89 @@
-{% extends 'base.html' %}
+{% extends "base.html" %}
+
 {% block title %}Dashboard - SecureVision{% endblock %}
+{% block breadcrumb %}Live Monitor & Overview{% endblock %}
+
 {% block content %}
-
-{% if live_view_enabled %}
-<section class="card" style="margin-bottom: 2rem;">
-  <div style="display: flex; justify-content: space-between; align-items: center;">
-    <h2 style="margin: 0;">Live Camera Feed</h2>
-    <button id="live-play-btn" style="padding: 0.4rem 1rem; border: none; background: #e74c3c; color: white; border-radius: 4px; cursor: pointer; font-weight: bold; font-size: 0.9em;">Stop Feed</button>
+<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+  <h2 style="margin: 0; font-size: 1.25rem;">Overview Analytics</h2>
+  <div style="display: flex; gap: 8px;">
+    <a href="{{ url_for('web.dashboard', period='day') }}" class="btn {% if period == 'day' %}btn-primary{% else %}btn-secondary{% endif %}" style="padding: 4px 12px; font-size: 0.85rem;">Today</a>
+    <a href="{{ url_for('web.dashboard', period='week') }}" class="btn {% if period == 'week' %}btn-primary{% else %}btn-secondary{% endif %}" style="padding: 4px 12px; font-size: 0.85rem;">Week</a>
+    <a href="{{ url_for('web.dashboard', period='month') }}" class="btn {% if period == 'month' %}btn-primary{% else %}btn-secondary{% endif %}" style="padding: 4px 12px; font-size: 0.85rem;">Month</a>
+    <a href="{{ url_for('web.dashboard', period='year') }}" class="btn {% if period == 'year' %}btn-primary{% else %}btn-secondary{% endif %}" style="padding: 4px 12px; font-size: 0.85rem;">Year</a>
+    <a href="{{ url_for('web.dashboard', period='all') }}" class="btn {% if period == 'all' %}btn-primary{% else %}btn-secondary{% endif %}" style="padding: 4px 12px; font-size: 0.85rem;">Lifetime</a>
   </div>
-  <div style="text-align: center; background: #000; padding: 1rem; border-radius: 6px; margin-top: 1rem;">
-    <!-- Natively supported MJPEG element -->
-    <img id="live-stream" alt="Live Feed (loading...)" onerror="this.alt='Live feed unavailable. Ensure main.py pipeline is running.';" style="max-width: 100%; max-height: 60vh; border-radius: 4px; border: 1px solid #333;" />
-  </div>
-  <script>
-    let isPlaying = true;
-    const imgElement = document.getElementById('live-stream');
-    const playBtn = document.getElementById('live-play-btn');
-    const streamUrl = "{{ url_for('web.live_stream') }}";
-    const frameUrl = "{{ url_for('web.live_frame') }}";
-
-    playBtn.addEventListener('click', () => {
-      isPlaying = !isPlaying;
-      if (isPlaying) {
-        playBtn.textContent = "Stop Feed";
-        playBtn.style.background = "#e74c3c";
-        imgElement.src = streamUrl + "?t=" + new Date().getTime();
-      } else {
-        playBtn.textContent = "Play Feed";
-        playBtn.style.background = "#2ecc71";
-        imgElement.src = frameUrl + "?t=" + new Date().getTime();
-      }
-    });
-
-    // Start native HTML streaming process
-    imgElement.src = streamUrl + "?t=" + new Date().getTime();
-  </script>
-</section>
-{% endif %}
-
-<h2>Activity: Last 24 Hours</h2>
-<section class="cards" style="margin-bottom: 2rem;">
-  <article class="card stat">
-    <h3>Events</h3>
-    <p>{{ events_24h }}</p>
-  </article>
-  <article class="card stat">
-    <h3>Authorised</h3>
-    <p style="color: #2ecc71;">{{ auth_24h }}</p>
-  </article>
-  <article class="card stat">
-    <h3>Unauthorised</h3>
-    <p style="color: #f39c12;">{{ unauth_24h }}</p>
-  </article>
-  <article class="card stat" style="border-left: 4px solid #e74c3c;">
-    <h3 style="color: #e74c3c;">Alerts</h3>
-    <p>{{ alerts_24h }}</p>
-  </article>
-</section>
-
-<h2>Lifetime Totals</h2>
-<section class="cards" style="margin-bottom: 2rem;">
-  <article class="card stat">
-    <h3>Enrolled</h3>
-    <p>{{ total_persons }}</p>
-  </article>
-  <article class="card stat">
-    <h3>Total Events</h3>
-    <p>{{ total_events }}</p>
-  </article>
-  <article class="card stat">
-    <h3>Total Alerts</h3>
-    <p>{{ total_alerts }}</p>
-  </article>
-</section>
-
-<div style="display: grid; grid-template-columns: 2fr 1fr; gap: 1.5rem;">
-  <section class="card">
-    <h2>Recent Events</h2>
-    {% if recent_events %}
-      <table>
-        <thead>
-          <tr>
-            <th>Time</th>
-            <th>Type</th>
-            <th>Person</th>
-            <th>Score</th>
-            <th>Action</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for event in recent_events %}
-            <tr>
-              <td>{{ event.created_at[:19] | replace('T', ' ') }}</td>
-              <td>
-                {% if event.status == 'authorised' %}
-                    <span style="color: #2ecc71;">{{ event.status }}</span>
-                {% else %}
-                    <span style="color: #e74c3c;">{{ event.status }}</span>
-                {% endif %}
-              </td>
-              <td>
-                {% if event.display_state == 'low_confidence_match' %}
-                  <strong>{{ event.person_name }}</strong>
-                  <span class="badge warn" style="font-size: 0.8em;">Low-conf</span>
-                {% elif event.display_state == 'authorised_match' %}
-                  {{ event.person_name }}
-                {% else %}
-                  Unknown
-                {% endif %}
-              </td>
-              <td>{{ '%.3f'|format(event.score or 0.0) }}</td>
-              <td><a href="{{ url_for('web.event_detail', event_id=event.event_id) }}">View</a></td>
-            </tr>
-          {% endfor %}
-        </tbody>
-      </table>
-      <p style="margin-top:1rem;"><a href="{{ url_for('web.events') }}">View all events</a></p>
-    {% else %}
-      <p>No events yet.</p>
-    {% endif %}
-  </section>
-
-  <section class="card">
-    <h2>Recent Alerts</h2>
-    {% if recent_alerts %}
-      <ul style="list-style:none; padding:0; margin:0;">
-        {% for alert in recent_alerts %}
-          <li style="margin-bottom: 1rem; padding-bottom: 1rem; border-bottom: 1px solid #ddd;">
-            <strong style="color:#e74c3c;">{{ alert.alert_type }}</strong><br>
-            <small style="color: #666;">{{ alert.created_at[:19] | replace('T', ' ') }}</small><br>
-            {{ alert.message }}<br>
-            <a style="font-size: 0.9em;" href="{{ url_for('web.event_detail', event_id=alert.event_id) }}">View Trigger Event &rarr;</a>
-          </li>
-        {% endfor %}
-      </ul>
-      <p style="margin-top:1rem;"><a href="{{ url_for('web.alerts') }}">View all alerts</a></p>
-    {% else %}
-      <p>No alerts yet.</p>
-    {% endif %}
-  </section>
 </div>
 
+<!-- KPI Row -->
+<div class="kpi-grid">
+  <div class="kpi-card">
+    <div class="kpi-title">Total Events</div>
+    <div class="kpi-val">{{ kpi_events }}</div>
+  </div>
+  <div class="kpi-card">
+    <div class="kpi-title">Active Alerts</div>
+    <div class="kpi-val" style="color: var(--status-danger);">{{ kpi_alerts }}</div>
+  </div>
+  <div class="kpi-card">
+    <div class="kpi-title">Authorised Scans</div>
+    <div class="kpi-val" style="color: var(--status-ok);">{{ kpi_auth }}</div>
+  </div>
+  <div class="kpi-card">
+    <div class="kpi-title">System Status</div>
+    <div class="kpi-val" style="color: var(--status-ok);">Online</div>
+  </div>
+</div>
+
+<div class="split-grid">
+  
+  <!-- Left Column: Video Feed & Priority Alerts -->
+  <div class="flex-col">
+    {% if live_view_enabled %}
+    <section>
+      <h3 style="display:flex; justify-content:space-between; align-items:center;">
+        Live Feed
+        <span class="badge badge-ok"><span class="badge-dot"></span> LIVE</span>
+      </h3>
+      <div class="video-container">
+        <!-- Assuming /live/stream is valid based on routes -->
+        <img src="{{ url_for('web.live_stream') }}" alt="Live camera feed">
+      </div>
+    </section>
+    {% endif %}
+
+    <section style="margin-top: 16px;">
+      <h3 style="color: var(--status-danger);">Priority Alerts</h3>
+      <div class="alert-list">
+        {% if recent_alerts %}
+          {% for alert in recent_alerts %}
+            {% include 'components/_alert_row.html' %}
+          {% endfor %}
+        {% else %}
+          <div class="empty-state">No active alerts. System is quiet.</div>
+        {% endif %}
+      </div>
+    </section>
+  </div>
+
+  <!-- Right Column: Recent Detections Stream -->
+  <div class="flex-col">
+    <h3>Live Event Stream</h3>
+    <div class="event-grid" style="grid-template-columns: 1fr;"> <!-- Stack vertically -->
+      {% if recent_events %}
+        {% for event in recent_events %}
+          {% set status = event.status %}
+          {% include 'components/_event_card.html' %}
+        {% endfor %}
+      {% else %}
+        <div class="empty-state">No recent detections.</div>
+      {% endif %}
+    </div>
+    
+    <div style="text-align: center; margin-top: 16px;">
+      <a href="{{ url_for('web.events') }}" class="btn btn-secondary">View All Events</a>
+    </div>
+  </div>
+
+</div>
 {% endblock %}

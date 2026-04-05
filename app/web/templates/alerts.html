@@ -1,31 +1,20 @@
-{% extends 'base.html' %}
+{% extends "base.html" %}
+
 {% block title %}Alerts - SecureVision{% endblock %}
+{% block breadcrumb %}Alert Triage{% endblock %}
+
 {% block content %}
-<section class="card">
-  <h2>Alert Log</h2>
+<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px;">
+  <h1 class="page-title" style="margin: 0;">Active Incidents & Alerts</h1>
+</div>
+
+<div class="alert-list">
   {% if alerts %}
-    <table>
-      <thead>
-        <tr>
-          <th>Time</th>
-          <th>Type</th>
-          <th>Message</th>
-          <th>Event</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for alert in alerts %}
-          <tr>
-            <td>{{ alert.created_at[:19] | replace('T', ' ') }}</td>
-            <td><strong style="color: #e74c3c;">{{ alert.alert_type|upper }}</strong></td>
-            <td>{{ alert.message }}</td>
-            <td><a href="{{ url_for('web.event_detail', event_id=alert.event_id) }}">View Trigger Event &rarr;</a></td>
-          </tr>
-        {% endfor %}
-      </tbody>
-    </table>
+    {% for alert in alerts %}
+      {% include 'components/_alert_row.html' %}
+    {% endfor %}
   {% else %}
-    <p>No alerts have been generated.</p>
+    <div class="empty-state">No active alerts.</div>
   {% endif %}
-</section>
+</div>
 {% endblock %}

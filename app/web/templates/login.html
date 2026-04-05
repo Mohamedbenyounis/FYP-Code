@@ -5,28 +5,45 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Login - SecureVision</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 </head>
-<body>
-  <main class="container small">
-    <h1>SecureVision Login</h1>
+<body class="auth-wrapper">
+  
+  <div class="auth-card">
+    <header class="auth-header">
+      <div class="auth-icon">SV</div>
+      <h1>SecureVision</h1>
+      <p>Administrative access only</p>
+    </header>
 
     {% with messages = get_flashed_messages(with_categories=true) %}
       {% if messages %}
-        {% for category, message in messages %}
-          <div class="flash {{ category }}">{{ message }}</div>
-        {% endfor %}
+        <div class="flash-wrap">
+          {% for category, message in messages %}
+            <div class="flash {{ category }}">{{ message }}</div>
+          {% endfor %}
+        </div>
       {% endif %}
     {% endwith %}
 
-    <form method="post" class="card form-grid">
-      <label>Username
-        <input type="text" name="username" required>
+    <form method="post" class="form-grid">
+      <label>
+        Username
+        <input type="text" name="username" required autofocus placeholder="Enter your username">
       </label>
-      <label>Password
-        <input type="password" name="password" required>
+      
+      <label>
+        Password
+        <input type="password" name="password" required placeholder="••••••••">
       </label>
-      <button type="submit">Login</button>
+      
+      <button type="submit" class="btn-primary">Sign In</button>
     </form>
-  </main>
+    
+    <div style="margin-top: 24px; text-align: center; font-size: 0.75rem; color: var(--text-muted);">
+      &copy; 2026 SecureVision System
+    </div>
+  </div>
+
 </body>
 </html>

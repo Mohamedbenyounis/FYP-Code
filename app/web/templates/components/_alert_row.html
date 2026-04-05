@@ -1,0 +1,20 @@
+{# Requires 'alert' object #}
+{# Currently alerts have status (e.g. 'new', 'acknowledged', 'resolved') but we want visual priority #}
+<div class="alert-row priority-high" id="alert-{{ alert.id }}">
+  <div class="alert-row-info">
+    <h4>Threat Detected: Unknown Person</h4>
+    <p>Camera: Main Feed | Generated: {{ alert.created_at | local_time }}</p>
+  </div>
+  <div class="alert-row-actions">
+    {% if alert.status != "acknowledged" and alert.status != "resolved" %}
+      <form method="POST" action="{{ url_for('web.acknowledge_alert', alert_id=alert.id) }}" class="ajax-acknowledge-form" style="margin:0;">
+        <button type="submit" class="btn btn-secondary">Acknowledge</button>
+      </form>
+    {% else %}
+      <span class="badge badge-ok" style="margin-right: 12px;">Acknowledged</span>
+    {% endif %}
+    {% if alert.event_id %}
+      <a href="{{ url_for('web.event_detail', event_id=alert.event_id) }}" class="btn btn-primary">Investigate Event</a>
+    {% endif %}
+  </div>
+</div>

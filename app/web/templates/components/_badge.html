@@ -1,0 +1,7 @@
+{# Requires 'status' and 'label' #}
+{% set badge_class = 'badge-ok' if status == 'authorised' else 'badge-danger' if status == 'unauthorised' else 'badge-warn' %}
+
+<span class="badge {{ badge_class }}">
+  <span class="badge-dot"></span>
+  {{ label }}
+</span>

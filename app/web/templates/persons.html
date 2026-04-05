@@ -1,39 +1,46 @@
 {% extends 'base.html' %}
 {% block title %}Persons - SecureVision{% endblock %}
-{% block content %}
-<section class="card">
-  <h2>Persons</h2>
-  <p><a class="button-link" href="{{ url_for('web.enroll') }}">Add Person (Enroll)</a></p>
+{% block breadcrumb %}Enrolled Persons Database{% endblock %}
 
+{% block content %}
+<div class="split-grid" style="grid-template-columns: 1fr; margin-bottom: 24px;">
+  <div style="display: flex; justify-content: space-between; align-items: center;">
+    <h1 class="page-title" style="margin: 0;">Authorised Identities</h1>
+    {% if session.get("role") == "admin" %}
+      <a href="{{ url_for('web.enroll') }}" class="btn btn-primary" style="font-weight: 600;">+ Enrol New Person</a>
+    {% endif %}
+  </div>
+</div>
+
+<div class="event-grid">
   {% if persons %}
-    <table>
-      <thead>
-        <tr>
-          <th>ID</th>
-          <th>Name</th>
-          <th>Created At</th>
-          <th>Embeddings</th>
-          <th>Action</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for person in persons %}
-          <tr>
-            <td>{{ person.person_id }}</td>
-            <td>{{ person.name }}</td>
-            <td>{{ person.created_at }}</td>
-            <td>{{ person.embedding_count }}</td>
-            <td>
-              <form method="post" action="{{ url_for('web.delete_person', person_id=person.person_id) }}" onsubmit="return confirm('Delete this person?');">
-                <button type="submit" class="danger">Delete</button>
-              </form>
-            </td>
-          </tr>
-        {% endfor %}
-      </tbody>
-    </table>
+    {% for person in persons %}
+      <div class="event-card status-ok" style="border-top-color: var(--status-ok);">
+        <!-- Could load an enrolled face crop here, but right now database doesn't link the source image paths natively in person summaries -->
+        <div class="event-card-body">
+          <div class="event-card-header">
+            <span class="event-card-name">{{ person.name }}</span>
+            <span class="badge badge-ok"><span class="badge-dot"></span> Authorised</span>
+          </div>
+          
+          <div style="margin-top: 12px; font-size: 0.85rem; color: var(--text-secondary); display: grid; gap: 4px;">
+            <div>ID: <span style="color: var(--text-primary); font-variant-numeric: tabular-nums;">{{ person.person_id }}</span></div>
+            <div>Enrolled: <span style="color: var(--text-primary);">{{ person.created_at | local_time }}</span></div>
+            <div>Data Points (Embeddings): <span style="color: var(--text-primary); font-weight: bold;">{{ person.embedding_count }}</span></div>
+          </div>
+          
+          {% if session.get("role") == "admin" %}
+          <div class="event-actions" style="margin-top: 16px;">
+            <form method="post" action="{{ url_for('web.delete_person', person_id=person.person_id) }}" onsubmit="return confirm('WARNING: Are you sure you want to delete {{ person.name }} and prune all related access rights?');" style="width: 100%; margin: 0;">
+              <button type="submit" class="btn btn-danger" style="width: 100%; font-size: 0.85rem;">Revoke Access & Delete Data</button>
+            </form>
+          </div>
+          {% endif %}
+        </div>
+      </div>
+    {% endfor %}
   {% else %}
-    <p>No enrolled persons found.</p>
+    <div class="empty-state">No authorised persons enrolled in the system.</div>
   {% endif %}
-</section>
+</div>
 {% endblock %}

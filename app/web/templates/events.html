@@ -1,65 +1,28 @@
-{% extends 'base.html' %}
-{% block title %}Events - SecureVision{% endblock %}
-{% block content %}
-<section class="card">
-  <h2>Events</h2>
-  <form method="get" class="inline-form">
-    <label>Status
-      <select name="status">
-        <option value="" {% if not status_filter %}selected{% endif %}>All</option>
-        <option value="authorised" {% if status_filter == 'authorised' %}selected{% endif %}>Authorised</option>
-        <option value="unauthorised" {% if status_filter == 'unauthorised' %}selected{% endif %}>Unauthorised</option>
-      </select>
-    </label>
-    <button type="submit">Filter</button>
-  </form>
+{% extends "base.html" %}
 
+{% block title %}Events - SecureVision{% endblock %}
+{% block breadcrumb %}Event Logs{% endblock %}
+
+{% block content %}
+<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px;">
+  <h1 class="page-title" style="margin: 0;">Historical Event Logs</h1>
+  <form method="GET" action="{{ url_for('web.events') }}" style="display: flex; gap: 8px;">
+    <select name="status">
+      <option value="all" {% if status_filter == 'all' or not status_filter %}selected{% endif %}>All Events</option>
+      <option value="authorised" {% if status_filter == 'authorised' %}selected{% endif %}>Authorised Only</option>
+      <option value="unauthorised" {% if status_filter == 'unauthorised' %}selected{% endif %}>Unauthorised Only</option>
+    </select>
+    <button type="submit" class="btn btn-primary">Filter</button>
+  </form>
+</div>
+
+<div class="event-grid">
   {% if events %}
-    <table>
-      <thead>
-        <tr>
-          <th>Time</th>
-          <th>Status</th>
-          <th>Person</th>
-          <th>Score</th>
-          <th>Media</th>
-          <th>Action</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for event in events %}
-          <tr>
-            <td>{{ event.created_at[:19] | replace('T', ' ') }}</td>
-            <td>
-                {% if event.status == 'authorised' %}
-                    <span style="color: #2ecc71; font-weight: bold;">{{ event.status|capitalize }}</span>
-                {% else %}
-                    <span style="color: #e74c3c; font-weight: bold;">{{ event.status|capitalize }}</span>
-                {% endif %}
-            </td>
-            <td>
-              {% if event.display_state == 'low_confidence_match' %}
-                <strong>{{ event.person_name }}</strong>
-                <div class="subtle" style="font-size: 0.8em; color: #f39c12;">Matched but below auth threshold</div>
-              {% elif event.display_state == 'authorised_match' %}
-                {{ event.person_name }}
-              {% else %}
-                Unknown
-              {% endif %}
-            </td>
-            <td>{{ '%.3f'|format(event.score or 0.0) }}</td>
-            <td>
-              {% if event.snapshot_path %}<span style="font-size: 0.9em; background: #eee; padding: 2px 5px; border-radius: 3px;">📷 Snap</span>{% endif %}
-              {% if event.clip_path %}<span style="font-size: 0.9em; background: #eee; padding: 2px 5px; border-radius: 3px; margin-left: 4px;">🎬 Clip</span>{% endif %}
-              {% if not event.snapshot_path and not event.clip_path %} None {% endif %}
-            </td>
-            <td><a href="{{ url_for('web.event_detail', event_id=event.event_id) }}">View</a></td>
-          </tr>
-        {% endfor %}
-      </tbody>
-    </table>
+    {% for event in events %}
+      {% include 'components/_event_card.html' %}
+    {% endfor %}
   {% else %}
-    <p>No events found.</p>
+    <div class="empty-state" style="grid-column: 1 / -1;">No events found matching your criteria.</div>
   {% endif %}
-</section>
+</div>
 {% endblock %}
