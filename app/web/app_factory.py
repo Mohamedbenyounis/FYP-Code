@@ -37,4 +37,15 @@ def create_app(config_override: Optional[dict] = None):
     if config.FLASK_SECRET_KEY == "securevision-dev-secret":
         log.warning("SECURITY: SV_FLASK_SECRET_KEY not set; using dev secret")
 
+    @app.template_filter('local_time')
+    def local_time_filter(iso_str):
+        if not iso_str:
+            return "Unknown"
+        try:
+            from datetime import datetime
+            dt = datetime.fromisoformat(iso_str)
+            return dt.astimezone().strftime("%Y-%m-%d %H:%M:%S")
+        except Exception:
+            return str(iso_str).split('.')[0]
+
     return app
