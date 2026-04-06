@@ -219,11 +219,11 @@ def test_named_unauthorised_event_shows_low_confidence_explanation(tmp_path, mon
     events_res = client.get("/events")
     assert events_res.status_code == 200
     assert b"Mohamed" in events_res.data
-    assert b"Matched but below auth threshold" in events_res.data
+    assert b"Matched identity but unauthorised (low confidence)." in events_res.data
 
     detail_res = client.get(f"/events/{event_id}")
     assert detail_res.status_code == 200
-    assert b"Matched identity but unauthorised" in detail_res.data
+    assert b"Matched identity but unauthorised (low confidence)." in detail_res.data
 
 
 def test_clip_route_serves_only_from_clip_dir(tmp_path, monkeypatch):
