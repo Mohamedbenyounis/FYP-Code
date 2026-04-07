@@ -518,8 +518,9 @@ def user_management():
 		elif admin_repo.get_by_username(username):
 			flash("User already exists.", "error")
 		else:
+			email = request.form.get("email", "").strip() or None
 			pwd_hash = generate_password_hash(password)
-			admin_repo.add_user(username=username, password_hash=pwd_hash, role=val_role)
+			admin_repo.add_user(username=username, password_hash=pwd_hash, role=val_role, email=email)
 			flash(f"User '{username}' created successfully.", "success")
 			return redirect(url_for("web.user_management"))
 
@@ -540,6 +541,21 @@ def delete_user(user_id: int):
 	deleted = admin_repo.delete_user(user_id)
 	if deleted:
 		flash("User deleted.", "success")
+	else:
+		flash("User not found.", "error")
+		
+	return redirect(url_for("web.user_management"))
+
+
+@web_bp.route("/update_user_email/<int:user_id>", methods=["POST"])
+@role_required(["admin"])
+def update_user_email(user_id: int):
+	_, _, admin_repo, _ = _repos()
+	email = request.form.get("email", "").strip() or None
+	
+	success = admin_repo.update_user_email(user_id, email)
+	if success:
+		flash("Email updated.", "success")
 	else:
 		flash("User not found.", "error")
 		

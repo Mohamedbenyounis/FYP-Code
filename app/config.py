@@ -250,3 +250,17 @@ EMAIL_PASSWORD: str = _env("SV_EMAIL_PASSWORD", "")
 EMAIL_RECIPIENT: str = _env("SV_EMAIL_RECIPIENT", "")
 EMAIL_SENDER: str = _env("SV_EMAIL_SENDER", "securevision@localhost")
 
+
+# =============================================================================
+# SERVO CONTROL (FYP Enhancement)
+# =============================================================================
+
+SERVO_ENABLED: bool = _env_bool("SV_SERVO_ENABLED", False)
+SERVO_PI_IP: str = _env("SV_SERVO_PI_IP", "172.20.10.5")
+SERVO_PI_PORT: int = _env_int("SV_SERVO_PI_PORT", 5000)
+
+SERVO_DEADZONE_RATIO: float = _env_float("SV_SERVO_DEADZONE_RATIO", 0.35)
+SERVO_STEP_DEGREES: float = _env_float("SV_SERVO_STEP_DEGREES", 4.0)
+SERVO_COOLDOWN_MS: float = _env_float("SV_SERVO_COOLDOWN_MS", 500.0)
+SERVO_OPPOSITE_LOCKOUT_MS: float = _env_float("SV_SERVO_OPPOSITE_LOCKOUT_MS", 1200.0)
+

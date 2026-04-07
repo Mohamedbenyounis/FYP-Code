@@ -96,6 +96,9 @@ def init_db(db_path: Path) -> sqlite3.Connection:
     # Migrate: add role to admin_users (Iteration 13 - RBAC) ----------
     _migrate_admin_users_add_role(conn, log)
 
+    # Migrate: add email to admin_users (Iteration 14) ----------------
+    _migrate_admin_users_add_email(conn, log)
+
     # Bootstrap default admin if none exists (Iteration 5) ------------
     _bootstrap_default_admin(conn, log)
 
@@ -150,6 +153,17 @@ def _migrate_admin_users_add_role(conn: sqlite3.Connection, log) -> None:
     if "role" not in columns:
         log.info("Migrating admin_users table: adding role column")
         conn.execute("ALTER TABLE admin_users ADD COLUMN role TEXT NOT NULL DEFAULT 'admin';")
+        conn.commit()
+
+
+def _migrate_admin_users_add_email(conn: sqlite3.Connection, log) -> None:
+    """Add email column to admin_users table for notifications."""
+    cursor = conn.execute("PRAGMA table_info(admin_users);")
+    columns = {row[1] for row in cursor.fetchall()}
+
+    if "email" not in columns:
+        log.info("Migrating admin_users table: adding email column")
+        conn.execute("ALTER TABLE admin_users ADD COLUMN email TEXT;")
         conn.commit()
 
 

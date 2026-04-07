@@ -251,11 +251,11 @@ class TestProcessingLoopFaultTolerance:
         config.ALERTS_ENABLED = original_alerts
         config.CLIP_ENABLED = original_clips
 
-        # The loop will have crashed on frame 2. This is expected because
-        # _processing_loop doesn't currently wrap process_frame in try/except.
-        # The test documents this finding: the loop IS vulnerable to
-        # pipeline exceptions. This is a valid test finding for the report.
-        assert len(exception_caught) > 0 or pipeline.process_frame.call_count >= 2
+        # The loop must NOT crash on frame 2. 
+        # It should handle the exception, log it, and continue to frame 3.
+        assert len(exception_caught) == 0, f"Loop crashed with exception: {exception_caught}"
+        assert pipeline.process_frame.call_count == 3, f"Expected 3 calls, got {pipeline.process_frame.call_count}"
+        assert not t.is_alive(), "Loop should have terminated cleanly after poison pill"
 
 
 class TestProcessingLoopQueuePressure:

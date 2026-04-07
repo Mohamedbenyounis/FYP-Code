@@ -8,7 +8,7 @@ import time
 
 from app import config
 from app.core.models import Event
-from app.db.repo import SQLiteAlertRepository
+from app.db.repo import SQLiteAlertRepository, AdminRepository
 from app.services.email_service import EmailService
 from app.services.logging_service import get_logger
 
@@ -19,11 +19,13 @@ class AlertService:
     def __init__(
         self, 
         repo: SQLiteAlertRepository, 
-        email_svc: EmailService
+        email_svc: EmailService,
+        admin_repo: AdminRepository | None = None
     ) -> None:
         self._log = get_logger()
         self._repo = repo
         self._email_svc = email_svc
+        self._admin_repo = admin_repo
         
         self.cooldown_sec = config.ALERT_SUPPRESSION_SECONDS
         self._last_alert_time: dict[str, float] = {}
@@ -84,22 +86,44 @@ class AlertService:
         
         # Optional Email via a lightweight, fire-and-forget daemon thread.
         # This is built as a best-effort send to avoid blocking the real-time webcam inference loop.
-        # It is NOT a durable async task queue or enterprise messaging broker.
-        if config.EMAIL_ALERTS_ENABLED and config.EMAIL_RECIPIENT:
-            self._send_email_async(
-                subject="SecureVision Alert: Unauthorised Presence",
-                body=f"An unauthorised person was detected at {event.created_at}.\n\n"
-                     f"Event ID: {event.event_id}\n\n"
-                     f"Please check the dashboard to review snapshots and video evidence."
-            )
+        if config.EMAIL_ALERTS_ENABLED:
+            # 1. Collect recipients
+            recipients = set()
+            if self._admin_repo:
+                users = self._admin_repo.list_users()
+                for u in users:
+                    email = u.get("email")
+                    if email and isinstance(email, str) and "@" in email:
+                        recipients.add(email.strip().lower())
             
-    def _send_email_async(self, subject: str, body: str) -> None:
+            # Fallback to config if no user emails found
+            if not recipients and config.EMAIL_RECIPIENT:
+                recipients.add(config.EMAIL_RECIPIENT.strip().lower())
+            
+            if recipients:
+                # Resolve full path to snapshot if it exists
+                image_abs_path = None
+                if event.snapshot_path:
+                    image_abs_path = str(config.BASE_DIR / event.snapshot_path)
+
+                self._send_email_async(
+                    recipients=list(recipients),
+                    subject="SecureVision Alert: Unauthorised Presence",
+                    body=f"An unauthorised person was detected at {event.created_at}.\n\n"
+                         f"Event ID: {event.event_id}\n\n"
+                         f"Please check the dashboard to review snapshots and video evidence.",
+                    image_path=image_abs_path
+                )
+            
+    def _send_email_async(self, recipients: list[str], subject: str, body: str, image_path: str | None = None) -> None:
         def task():
-            self._email_svc.send_email(
-                to=config.EMAIL_RECIPIENT,
-                subject=subject,
-                body=body,
-                sender=config.EMAIL_SENDER
-            )
+            for to in recipients:
+                self._email_svc.send_email(
+                    to=to,
+                    subject=subject,
+                    body=body,
+                    sender=config.EMAIL_SENDER,
+                    image_path=image_path
+                )
         t = threading.Thread(target=task, daemon=True)
         t.start()

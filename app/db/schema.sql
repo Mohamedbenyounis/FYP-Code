@@ -56,6 +56,8 @@ CREATE TABLE IF NOT EXISTS admin_users (
     id            INTEGER PRIMARY KEY AUTOINCREMENT,
     username      TEXT    NOT NULL UNIQUE,
     password_hash TEXT    NOT NULL,            -- werkzeug.security hash
+    role          TEXT    NOT NULL DEFAULT 'admin',
+    email         TEXT,                        -- optional email for alerts
     created_at    TEXT    NOT NULL             -- ISO 8601 (UTC)
 );
 

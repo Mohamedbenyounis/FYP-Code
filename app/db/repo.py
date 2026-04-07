@@ -550,7 +550,7 @@ class AdminRepository:
         Raw embedding blobs or other internals are never exposed.
         """
         cursor = self._conn.execute(
-            "SELECT id, username, password_hash, role "
+            "SELECT id, username, password_hash, role, email "
             "FROM admin_users WHERE username = ?",
             (username,),
         )
@@ -559,32 +559,49 @@ class AdminRepository:
             return None
         # Fallback to 'admin' if the role column is unexpectedly missing/null during migration
         role_val = row[3] if len(row) > 3 and row[3] else 'admin'
-        return {"id": row[0], "username": row[1], "password_hash": row[2], "role": role_val}
+        email_val = row[4] if len(row) > 4 else None
+        return {
+            "id": row[0], 
+            "username": row[1], 
+            "password_hash": row[2], 
+            "role": role_val,
+            "email": email_val
+        }
 
-    def add_user(self, username: str, password_hash: str, role: str) -> None:
-        """Insert a new user with a specific role. ``password_hash`` must be pre-hashed."""
+    def add_user(self, username: str, password_hash: str, role: str, email: str | None = None) -> None:
+        """Insert a new user with a specific role and optional email."""
         now_iso = datetime.now(timezone.utc).isoformat()
         self._conn.execute(
-            "INSERT INTO admin_users (username, password_hash, role, created_at) "
-            "VALUES (?, ?, ?, ?)",
-            (username, password_hash, role, now_iso),
+            "INSERT INTO admin_users (username, password_hash, role, email, created_at) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (username, password_hash, role, email, now_iso),
         )
         self._conn.commit()
 
     def list_users(self) -> list[dict]:
         """Return a list of all users, excluding password hashes."""
         cursor = self._conn.execute(
-            "SELECT id, username, role, created_at FROM admin_users ORDER BY id"
+            "SELECT id, username, role, email, created_at FROM admin_users ORDER BY id"
         )
         return [
             {
                 "id": row[0], 
                 "username": row[1], 
                 "role": row[2], 
-                "created_at": row[3]
+                "email": row[3],
+                "created_at": row[4]
             } 
             for row in cursor.fetchall()
         ]
+
+    def update_user_email(self, user_id: int, email: str | None) -> bool:
+        """Update a user's email address. Returns True if successful."""
+        cursor = self._conn.execute(
+            "UPDATE admin_users SET email = ? WHERE id = ?",
+            (email, user_id)
+        )
+        self._conn.commit()
+        return cursor.rowcount > 0
         
     def delete_user(self, user_id: int) -> bool:
         """Delete a user by ID. Returns True if successful."""

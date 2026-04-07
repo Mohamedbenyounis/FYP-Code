@@ -55,9 +55,15 @@ class RTSPCamera(CameraSource):
         #
         # NOTE: These are best‑effort.  If OpenCV was compiled with a
         # different backend (GStreamer, MSMF) these have no effect.
-        os.environ.setdefault(
-            "OPENCV_FFMPEG_CAPTURE_OPTIONS",
-            "fflags;nobuffer|flags;low_delay|framedrop;1",
+        # Aggressive FFmpeg low-latency options.
+        # rtsp_transport;tcp   — Uses TCP for reliability and lower jitter
+        # analyzeduration;0    — Disables stream analysis delay
+        # probesize;32         — Minimizes initial probe data
+        # fflags;nobuffer      — Disables internal buffering
+        # flags;low_delay      — Decoder hint for low latency
+        os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = (
+            "rtsp_transport;tcp|analyzeduration;0|probesize;32|"
+            "fflags;nobuffer|flags;low_delay|framedrop;1"
         )
 
         self._open()

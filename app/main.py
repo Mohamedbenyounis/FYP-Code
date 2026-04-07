@@ -15,6 +15,7 @@ import queue
 import sys
 import threading
 import time
+import traceback
 
 import cv2
 import numpy as np
@@ -29,6 +30,7 @@ from app.db.repo import (
     SQLiteEventRepository,
     SQLitePersonRepository,
     SQLiteAlertRepository,
+    AdminRepository,
     make_enrolled_provider,
 )
 from app.ml.pipeline import FacePipeline
@@ -36,6 +38,7 @@ from app.recording.snapshot_recorder import SnapshotRecorder
 from app.recording.clip_recorder import ClipRecorder
 from app.services.alert_service import AlertService
 from app.services.email_service import EmailService
+from app.services.servo_service import ServoController
 from app.services.logging_service import FrameRateLogger, get_logger
 
 
@@ -148,6 +151,7 @@ def _processing_loop(
     clip_recorder: ClipRecorder,
     clip_lock: threading.Lock,
     alert_service: AlertService,
+    servo_controller: ServoController | None,
     log,
 ) -> None:
     """
@@ -175,181 +179,197 @@ def _processing_loop(
             break
 
         # --- ML processing ------------------------------------------------
-        result = pipeline.process_frame(frame)
-        slow_diag.tick_ml()
-        slow_diag.maybe_log(log)
+        try:
+            result = pipeline.process_frame(frame)
+            slow_diag.tick_ml()
+            slow_diag.maybe_log(log)
 
-        # Build overlay list from ML results
-        new_overlays = []
-        if result.detections:
-            log.info("Detected %d face(s)", len(result.detections))
-
-        if result.primary_detection is not None:
-            det = result.primary_detection
-            log.info(
-                "Primary face  | conf=%.2f | bbox=%s | size=%dx%d",
-                det.confidence,
-                det.bbox.as_tuple(),
-                det.bbox.width,
-                det.bbox.height,
-            )
-
-        # Multi-face recognition summary
-        if result.recognitions:
-            known = [
-                r for r in result.recognitions
-                if r is not None and r.is_match
-            ]
-            if known:
-                names = ", ".join(r.name for r in known)
-                log.info("Recognised: %s", names)
-            unknown_count = sum(
-                1 for r in result.recognitions
-                if r is None or not r.is_match
-            )
-            if unknown_count:
-                log.info("Unknown faces: %d", unknown_count)
-        elif result.recognition is not None:
-            rec = result.recognition
-            if rec.is_match:
-                log.info("Recognised: %s  score=%.3f", rec.name, rec.score)
-            else:
-                log.info("Unknown face  score=%.3f", rec.score)
-
-        if result.message and result.primary_detection is None:
-            log.debug("%s", result.message)
-
-        stats.log_frame(
-            detected=result.primary_detection is not None,
-            recognised=(
-                result.recognition is not None
-                and result.recognition.is_match
-            ),
-        )
-
-        # Build overlays for the fast thread to draw
-        for idx, det in enumerate(result.detections):
-            b = det.bbox
-            is_primary = (
-                result.primary_detection is not None
-                and det is result.primary_detection
-            )
-
-            rec = None
-            if idx < len(result.recognitions):
-                rec = result.recognitions[idx]
-
-            if is_primary:
-                colour = (0, 255, 0)
-                thickness = 2
-            elif rec is not None and rec.is_match:
-                colour = (0, 255, 255)
-                thickness = 2
-            else:
-                colour = (180, 180, 180)
-                thickness = 1
-
-            if rec is not None and rec.is_match:
-                label = f"{rec.name} ({rec.score:.2f})"
-            elif rec is not None:
-                label = f"Unknown ({rec.score:.2f})"
-            else:
-                label = f"conf={det.confidence:.2f}"
-
-            font_scale = 0.6 if is_primary else 0.5
-            font_thickness = 2 if is_primary else 1
-
-            new_overlays.append({
-                "bbox": (b.x1, b.y1, b.x2, b.y2),
-                "label": label,
-                "colour": colour,
-                "thickness": thickness,
-                "font_scale": font_scale,
-                "font_thickness": font_thickness,
-            })
-
-        # Atomic swap — fast thread will pick this up on next iteration
-        _latest_overlays = new_overlays
-
-        # --- Multi-Face Event Manager (Iteration 9) -----------------------
-        now = time.monotonic()
-        per_face_obs: list[Observation] = []
-
-        for idx, det in enumerate(result.detections):
-            rec = None
-            if idx < len(result.recognitions):
-                rec = result.recognitions[idx]
-
-            obs = Observation(
-                timestamp=now,
-                face_present=True,
-                person_name=(
-                    rec.name
-                    if rec is not None and rec.is_match
-                    else None
-                ),
-                person_id=None,
-                score=rec.score if rec is not None else 0.0,
-                bbox=det.bbox,
-            )
-            per_face_obs.append(obs)
-
-        events = event_manager.update(per_face_obs)
-
-        # Notify clip recorder of active presences
-        if config.CLIP_ENABLED:
-            with clip_lock:
-                clip_recorder.update_track_states(event_manager.track_states())
-
-        for event in events:
-            event_repo.add_event(event)
-
-            # --- Alerts (Iteration 11) ---
-            if config.ALERTS_ENABLED and event.status == "unauthorised":
-                alert_service.trigger_unauthorised_alert(event)
-
-            snapshot_path = snapshot_recorder.on_event(event, frame)
-            if snapshot_path is not None:
-                try:
-                    rel_path = snapshot_path.relative_to(config.BASE_DIR).as_posix()
-                except ValueError:
-                    rel_path = snapshot_path.as_posix()
-
-                updated = event_repo.update_event_snapshot(
-                    event.event_id,
-                    rel_path,
+            # --- Servo Control Integration (FYP) ---
+            if config.SERVO_ENABLED and servo_controller is not None and result.primary_detection:
+                servo_controller.compute_and_send(
+                    result.primary_detection, 
+                    frame.shape[1], 
+                    frame.shape[0]
                 )
-                if updated:
-                    log.info(
-                        "EVENT SNAPSHOT linked id=%s path=%s",
-                        event.event_id[:8],
-                        rel_path,
-                    )
-                else:
-                    log.warning(
-                        "EVENT SNAPSHOT link failed id=%s",
-                        event.event_id[:8],
-                    )
 
-            # Clip recording trigger (thread-safe)
+            # Build overlay list from ML results
+            new_overlays = []
+            if result.detections:
+                log.info("Detected %d face(s)", len(result.detections))
+
+            if result.primary_detection is not None:
+                det = result.primary_detection
+                log.info(
+                    "Primary face  | conf=%.2f | bbox=%s | size=%dx%d",
+                    det.confidence,
+                    det.bbox.as_tuple(),
+                    det.bbox.width,
+                    det.bbox.height,
+                )
+
+            # Multi-face recognition summary
+            if result.recognitions:
+                known = [
+                    r for r in result.recognitions
+                    if r is not None and r.is_match
+                ]
+                if known:
+                    names = ", ".join(r.name for r in known)
+                    log.info("Recognised: %s", names)
+                unknown_count = sum(
+                    1 for r in result.recognitions
+                    if r is None or not r.is_match
+                )
+                if unknown_count:
+                    log.info("Unknown faces: %d", unknown_count)
+            elif result.recognition is not None:
+                rec = result.recognition
+                if rec.is_match:
+                    log.info("Recognised: %s  score=%.3f", rec.name, rec.score)
+                else:
+                    log.info("Unknown face  score=%.3f", rec.score)
+
+            if result.message and result.primary_detection is None:
+                log.debug("%s", result.message)
+
+            stats.log_frame(
+                detected=result.primary_detection is not None,
+                recognised=(
+                    result.recognition is not None
+                    and result.recognition.is_match
+                ),
+            )
+
+            # Build overlays for the fast thread to draw
+            for idx, det in enumerate(result.detections):
+                b = det.bbox
+                is_primary = (
+                    result.primary_detection is not None
+                    and det is result.primary_detection
+                )
+
+                rec = None
+                if idx < len(result.recognitions):
+                    rec = result.recognitions[idx]
+
+                if is_primary:
+                    colour = (0, 255, 0)
+                    thickness = 2
+                elif rec is not None and rec.is_match:
+                    colour = (0, 255, 255)
+                    thickness = 2
+                else:
+                    colour = (180, 180, 180)
+                    thickness = 1
+
+                if rec is not None and rec.is_match:
+                    label = f"{rec.name} ({rec.score:.2f})"
+                elif rec is not None:
+                    label = f"Unknown ({rec.score:.2f})"
+                else:
+                    label = f"conf={det.confidence:.2f}"
+
+                font_scale = 0.6 if is_primary else 0.5
+                font_thickness = 2 if is_primary else 1
+
+                new_overlays.append({
+                    "bbox": (b.x1, b.y1, b.x2, b.y2),
+                    "label": label,
+                    "colour": colour,
+                    "thickness": thickness,
+                    "font_scale": font_scale,
+                    "font_thickness": font_thickness,
+                })
+
+            # Atomic swap — fast thread will pick this up on next iteration
+            _latest_overlays = new_overlays
+
+            # --- Multi-Face Event Manager (Iteration 9) -----------------------
+            now = time.monotonic()
+            per_face_obs: list[Observation] = []
+
+            for idx, det in enumerate(result.detections):
+                rec = None
+                if idx < len(result.recognitions):
+                    rec = result.recognitions[idx]
+
+                obs = Observation(
+                    timestamp=now,
+                    face_present=True,
+                    person_name=(
+                        rec.name
+                        if rec is not None and rec.is_match
+                        else None
+                    ),
+                    person_id=None,
+                    score=rec.score if rec is not None else 0.0,
+                    bbox=det.bbox,
+                )
+                per_face_obs.append(obs)
+
+            events = event_manager.update(per_face_obs)
+
+            # Notify clip recorder of active presences
             if config.CLIP_ENABLED:
                 with clip_lock:
-                    clip_recorder.on_event(event, frame)
+                    clip_recorder.update_track_states(event_manager.track_states())
 
-            log.info(
-                "EVENT  id=%s  status=%s  person=%s  score=%.3f",
-                event.event_id[:8],
-                event.status,
-                event.person_name or "unknown",
-                event.score or 0.0,
-            )
+            for event in events:
+                event_repo.add_event(event)
 
-        if event_manager.active_tracks > 0:
-            log.debug(
-                "Active tracks: %d  states: %s",
-                event_manager.active_tracks,
-                event_manager.track_states(),
+                # --- Alerts (Iteration 11) ---
+                if config.ALERTS_ENABLED and event.status == "unauthorised":
+                    alert_service.trigger_unauthorised_alert(event)
+
+                snapshot_path = snapshot_recorder.on_event(event, frame)
+                if snapshot_path is not None:
+                    try:
+                        rel_path = snapshot_path.relative_to(config.BASE_DIR).as_posix()
+                    except ValueError:
+                        rel_path = snapshot_path.as_posix()
+
+                    updated = event_repo.update_event_snapshot(
+                        event.event_id,
+                        rel_path,
+                    )
+                    if updated:
+                        log.info(
+                            "EVENT SNAPSHOT linked id=%s path=%s",
+                            event.event_id[:8],
+                            rel_path,
+                        )
+                    else:
+                        log.warning(
+                            "EVENT SNAPSHOT link failed id=%s",
+                            event.event_id[:8],
+                        )
+
+                # Clip recording trigger (thread-safe)
+                if config.CLIP_ENABLED:
+                    with clip_lock:
+                        clip_recorder.on_event(event, frame)
+
+                log.info(
+                    "EVENT  id=%s  status=%s  person=%s  score=%.3f",
+                    event.event_id[:8],
+                    event.status,
+                    event.person_name or "unknown",
+                    event.score or 0.0,
+                )
+
+            if event_manager.active_tracks > 0:
+                log.debug(
+                    "Active tracks: %d  states: %s",
+                    event_manager.active_tracks,
+                    event_manager.track_states(),
+                )
+        except Exception as e:
+            log.error(
+                "Error processing frame in background thread: %s\n%s",
+                str(e),
+                traceback.format_exc(),
             )
+            continue
 
 
 def main() -> int:
@@ -371,6 +391,7 @@ def main() -> int:
     repo = SQLitePersonRepository(conn)
     event_repo = SQLiteEventRepository(conn)
     alert_repo = SQLiteAlertRepository(conn)
+    repo_admin = AdminRepository(conn)
     enrolled_provider = make_enrolled_provider(repo)
     snapshot_recorder = SnapshotRecorder(config.SNAPSHOTS_DIR)
     clip_recorder = ClipRecorder(config.CLIPS_DIR)
@@ -383,7 +404,7 @@ def main() -> int:
         username=config.EMAIL_USERNAME,
         password=config.EMAIL_PASSWORD
     )
-    alert_service = AlertService(alert_repo, email_service)
+    alert_service = AlertService(alert_repo, email_service, admin_repo=repo_admin)
 
     log.info("DB path  : %s", config.DB_PATH)
 
@@ -432,6 +453,14 @@ def main() -> int:
         conn.close()
         return 1
 
+    # Servo Control (FYP Enhancement) ----------------------------------
+    servo_controller = None
+    if config.SERVO_ENABLED:
+        log.info("Servo Control ENABLED — Target Pi: %s:%d", config.SERVO_PI_IP, config.SERVO_PI_PORT)
+        servo_controller = ServoController(config.SERVO_PI_IP, config.SERVO_PI_PORT)
+    else:
+        log.info("Servo Control DISABLED (via config)")
+
     # ML pipeline (pluggable adapter) ----------------------------------
     pipeline = FacePipeline(enrolled_provider=enrolled_provider)
 
@@ -472,6 +501,7 @@ def main() -> int:
             clip_recorder,
             clip_lock,
             alert_service,
+            servo_controller,
             log,
         ),
         daemon=True,
