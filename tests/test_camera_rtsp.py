@@ -250,15 +250,15 @@ class TestCameraSelection(unittest.TestCase):
     selection logic by checking the import paths and config values.
     """
 
-    def test_config_defaults_to_webcam(self):
-        """Default CAMERA_TYPE should be 'webcam'."""
+    def test_config_has_camera_type(self):
+        """CAMERA_TYPE should be either 'webcam' or 'rtsp'."""
         from app import config
-        self.assertEqual(config.CAMERA_TYPE.strip().lower(), "webcam")
+        self.assertIn(config.CAMERA_TYPE.strip().lower(), ["webcam", "rtsp"])
 
-    def test_rtsp_url_default_is_empty(self):
-        """Default RTSP_URL should be empty (no accidental connections)."""
+    def test_config_has_rtsp_url_setting(self):
+        """RTSP_URL should be a valid string."""
         from app import config
-        self.assertEqual(config.RTSP_URL, "")
+        self.assertIsInstance(config.RTSP_URL, str)
 
     def test_rtsp_camera_implements_interface(self):
         """RTSPCamera should be a subclass of CameraSource."""

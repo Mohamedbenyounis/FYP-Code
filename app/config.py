@@ -142,11 +142,10 @@ CLAHE_TILE_GRID_SIZE: int = _env_int("SV_CLAHE_TILE_GRID_SIZE", 8)
 GAMMA_VALUE: float = _env_float("SV_GAMMA_VALUE", 1.35)
 
 # =============================================================================
-# PERFORMANCE
-# =============================================================================
-
+# Performance Evaluation Toggles (Iteration 12c)
+# ---------------------------------------------------------------------------
 PROCESS_EVERY_N_FRAMES: int = _env_int("SV_PROCESS_EVERY_N_FRAMES", 3)
-
+SINGLE_THREAD_MODE: bool = _env_bool("SV_SINGLE_THREAD_MODE", True)
 # =============================================================================
 # RECORDING (Iteration 4)
 # =============================================================================
@@ -256,8 +255,12 @@ EMAIL_SENDER: str = _env("SV_EMAIL_SENDER", "securevision@localhost")
 # =============================================================================
 
 SERVO_ENABLED: bool = _env_bool("SV_SERVO_ENABLED", False)
+SERVO_UI_ENABLED: bool = _env_bool("SV_SERVO_UI_ENABLED", False)
 SERVO_PI_IP: str = _env("SV_SERVO_PI_IP", "172.20.10.5")
 SERVO_PI_PORT: int = _env_int("SV_SERVO_PI_PORT", 5000)
+
+SERVO_HOME_PAN: float = _env_float("SV_SERVO_HOME_PAN", 90.0)
+SERVO_HOME_TILT: float = _env_float("SV_SERVO_HOME_TILT", 90.0)
 
 SERVO_DEADZONE_RATIO: float = _env_float("SV_SERVO_DEADZONE_RATIO", 0.35)
 SERVO_STEP_DEGREES: float = _env_float("SV_SERVO_STEP_DEGREES", 4.0)

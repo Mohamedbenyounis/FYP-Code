@@ -4,7 +4,7 @@ import pytest
 from uuid import uuid4
 from datetime import datetime, timezone
 from app.core.models import Event
-from app.db.repo import AdminRepository, SQLiteEventRepository
+from app.db.repo import UserRepository, SQLiteEventRepository
 
 def _login_as(client, username, password):
     client.post("/login", data={"username": username, "password": password})
@@ -50,19 +50,19 @@ def test_admin_create_user(client, db):
     assert res.status_code == 200
     assert b"User &#39;newop&#39; created successfully" in res.data
     
-    admin_repo = AdminRepository(db)
-    user = admin_repo.get_by_username("newop")
+    user_repo = UserRepository(db)
+    user = user_repo.get_by_username("newop")
     assert user is not None
     assert user["role"] == "operator"
 
 def test_rbac_operator_access_blocked(client, db):
     """Operator receives 403 on protected admin routes."""
-    admin_repo = AdminRepository(db)
-    admin_repo.add_user("optest", "pbkdf2:sha256:...", "operator")
+    user_repo = UserRepository(db)
+    user_repo.add_user("optest", "pbkdf2:sha256:...", "operator")
     # For simplicity, we create without valid hash, we just need the DB record.
     # Wait, we need them to actually login, so provide real hash.
     from werkzeug.security import generate_password_hash
-    admin_repo.add_user("optest2", generate_password_hash("pass"), "operator")
+    user_repo.add_user("optest2", generate_password_hash("pass"), "operator")
     
     _login_as(client, "optest2", "pass")
     
@@ -85,14 +85,14 @@ def test_rbac_admin_access_allowed(client):
 def test_admin_self_delete_blocked(client, db):
     """Admin attempting self-delete via /delete_user/<id> fails safely."""
     _login_as(client, "admin", "test-admin-pass")
-    admin_repo = AdminRepository(db)
-    admin_user = admin_repo.get_by_username("admin")
+    user_repo = UserRepository(db)
+    admin_user = user_repo.get_by_username("admin")
     
     res = client.post(f"/delete_user/{admin_user['id']}", follow_redirects=True)
     assert res.status_code == 200
     assert b"Action Denied" in res.data
     
-    still_exists = admin_repo.get_by_username("admin")
+    still_exists = user_repo.get_by_username("admin")
     assert still_exists is not None
 
 def test_invalid_period_fallback(client):

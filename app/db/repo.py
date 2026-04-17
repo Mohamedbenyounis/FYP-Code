@@ -528,12 +528,12 @@ class SQLiteEventRepository:
         return cursor.fetchone()[0]
 
 # =====================================================================
-# Admin user repository  (Iteration 5 — Dashboard auth)
+# System user repository  (Iteration 5 — Dashboard auth)
 # =====================================================================
 
-class AdminRepository:
+class UserRepository:
     """
-    Repository for ``admin_users`` table.
+    Repository for ``users`` table.
 
     All dashboard authentication SQL lives here.
     Routes interact only via the public methods below.
@@ -551,7 +551,7 @@ class AdminRepository:
         """
         cursor = self._conn.execute(
             "SELECT id, username, password_hash, role, email "
-            "FROM admin_users WHERE username = ?",
+            "FROM users WHERE username = ?",
             (username,),
         )
         row = cursor.fetchone()
@@ -572,7 +572,7 @@ class AdminRepository:
         """Insert a new user with a specific role and optional email."""
         now_iso = datetime.now(timezone.utc).isoformat()
         self._conn.execute(
-            "INSERT INTO admin_users (username, password_hash, role, email, created_at) "
+            "INSERT INTO users (username, password_hash, role, email, created_at) "
             "VALUES (?, ?, ?, ?, ?)",
             (username, password_hash, role, email, now_iso),
         )
@@ -581,7 +581,7 @@ class AdminRepository:
     def list_users(self) -> list[dict]:
         """Return a list of all users, excluding password hashes."""
         cursor = self._conn.execute(
-            "SELECT id, username, role, email, created_at FROM admin_users ORDER BY id"
+            "SELECT id, username, role, email, created_at FROM users ORDER BY id"
         )
         return [
             {
@@ -597,7 +597,7 @@ class AdminRepository:
     def update_user_email(self, user_id: int, email: str | None) -> bool:
         """Update a user's email address. Returns True if successful."""
         cursor = self._conn.execute(
-            "UPDATE admin_users SET email = ? WHERE id = ?",
+            "UPDATE users SET email = ? WHERE id = ?",
             (email, user_id)
         )
         self._conn.commit()
@@ -605,13 +605,13 @@ class AdminRepository:
         
     def delete_user(self, user_id: int) -> bool:
         """Delete a user by ID. Returns True if successful."""
-        cursor = self._conn.execute("DELETE FROM admin_users WHERE id = ?", (user_id,))
+        cursor = self._conn.execute("DELETE FROM users WHERE id = ?", (user_id,))
         self._conn.commit()
         return cursor.rowcount > 0
 
     def count(self) -> int:
-        """Return total number of admin users."""
-        cursor = self._conn.execute("SELECT COUNT(*) FROM admin_users")
+        """Return total number of users."""
+        cursor = self._conn.execute("SELECT COUNT(*) FROM users")
         return cursor.fetchone()[0]
 
 
@@ -686,3 +686,31 @@ class SQLiteAlertRepository:
             (dt.isoformat(),)
         )
         return cursor.fetchone()[0]
+
+
+# =====================================================================
+# System settings repository  (cross-process key-value state)
+# =====================================================================
+
+class SettingsRepository:
+    """Minimal key-value store backed by the ``system_settings`` table."""
+
+    def __init__(self, conn: sqlite3.Connection) -> None:
+        self._conn = conn
+
+    def get_setting(self, key: str) -> Optional[str]:
+        """Return the value for *key*, or ``None`` if unset."""
+        cursor = self._conn.execute(
+            "SELECT value FROM system_settings WHERE key = ?", (key,)
+        )
+        row = cursor.fetchone()
+        return row[0] if row else None
+
+    def set_setting(self, key: str, value: str) -> None:
+        """Insert or update *key* to *value*."""
+        self._conn.execute(
+            "INSERT INTO system_settings (key, value) VALUES (?, ?) "
+            "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            (key, value),
+        )
+        self._conn.commit()

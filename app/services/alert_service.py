@@ -8,7 +8,7 @@ import time
 
 from app import config
 from app.core.models import Event
-from app.db.repo import SQLiteAlertRepository, AdminRepository
+from app.db.repo import SQLiteAlertRepository, UserRepository
 from app.services.email_service import EmailService
 from app.services.logging_service import get_logger
 
@@ -20,7 +20,7 @@ class AlertService:
         self, 
         repo: SQLiteAlertRepository, 
         email_svc: EmailService,
-        admin_repo: AdminRepository | None = None
+        admin_repo: UserRepository | None = None
     ) -> None:
         self._log = get_logger()
         self._repo = repo

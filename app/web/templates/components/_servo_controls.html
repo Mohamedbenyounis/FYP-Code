@@ -1,0 +1,254 @@
+{# Servo Control Panel — only rendered when servo_ui_enabled is True #}
+<section class="servo-panel" id="servo-panel">
+  <div class="servo-header">
+    <h3>Camera Control</h3>
+    <div class="servo-status-badges">
+      <span class="badge" id="servo-mode-badge">
+        <span class="badge-dot"></span>
+        <span id="servo-mode-label">MANUAL</span>
+      </span>
+      <span class="badge" id="servo-hw-badge">
+        <span class="badge-dot"></span>
+        <span id="servo-hw-label">Checking…</span>
+      </span>
+    </div>
+  </div>
+
+  <!-- Auto-Tracking Toggle -->
+  <div class="servo-toggle-row">
+    <label for="servo-auto-toggle" class="servo-toggle-label">Automatic Tracking</label>
+    <label class="toggle-switch">
+      <input type="checkbox" id="servo-auto-toggle">
+      <span class="toggle-slider"></span>
+    </label>
+  </div>
+
+  <!-- D-pad -->
+  <div class="dpad-container" id="dpad-container">
+    <div class="dpad-row">
+      <button class="dpad-btn" id="dpad-up" data-axis="tilt" data-dir="up" title="Tilt Up">&#9650;</button>
+    </div>
+    <div class="dpad-row dpad-middle">
+      <button class="dpad-btn" id="dpad-left" data-axis="pan" data-dir="left" title="Pan Left">&#9664;</button>
+      <button class="dpad-btn dpad-center" id="dpad-center" data-axis="both" data-dir="center" title="Recenter">&#9679;</button>
+      <button class="dpad-btn" id="dpad-right" data-axis="pan" data-dir="right" title="Pan Right">&#9654;</button>
+    </div>
+    <div class="dpad-row">
+      <button class="dpad-btn" id="dpad-down" data-axis="tilt" data-dir="down" title="Tilt Down">&#9660;</button>
+    </div>
+  </div>
+
+  <!-- Offline overlay -->
+  <div class="servo-offline-overlay" id="servo-offline-overlay" style="display:none;">
+    <span>&#9888; Hardware Offline</span>
+  </div>
+</section>
+
+<script>
+(function() {
+  const panel       = document.getElementById('servo-panel');
+  const toggle      = document.getElementById('servo-auto-toggle');
+  const modeBadge   = document.getElementById('servo-mode-badge');
+  const modeLabel   = document.getElementById('servo-mode-label');
+  const hwBadge     = document.getElementById('servo-hw-badge');
+  const hwLabel     = document.getElementById('servo-hw-label');
+  const dpadBtns    = document.querySelectorAll('.dpad-btn');
+  const dpadBox     = document.getElementById('dpad-container');
+  const offOverlay  = document.getElementById('servo-offline-overlay');
+
+  // --- State Management ---
+  let piOnline    = false;
+  let autoEnabled = false;
+  let isEngaged   = false;  // Whether keyboard controls are currently active
+  let moveInterval = null;
+  let activeAxis   = null;
+  let activeDir    = null;
+
+  function updateUI() {
+    // Engaged status
+    if (isEngaged && piOnline) {
+      panel.classList.add('engaged');
+    } else {
+      panel.classList.remove('engaged');
+      if (isEngaged && !piOnline) isEngaged = false; // Force disengage if offline
+    }
+
+    // Mode badge
+    if (autoEnabled) {
+      modeBadge.className = 'badge badge-ok';
+      modeLabel.textContent = 'AUTO';
+    } else {
+      modeBadge.className = 'badge badge-warn';
+      modeLabel.textContent = 'MANUAL';
+    }
+    toggle.checked = autoEnabled;
+
+    // Hardware badge
+    if (piOnline) {
+      hwBadge.className = 'badge badge-ok';
+      hwLabel.textContent = 'Pi Online';
+      offOverlay.style.display = 'none';
+      dpadBtns.forEach(b => b.disabled = false);
+      toggle.disabled = false;
+    } else {
+      hwBadge.className = 'badge badge-danger';
+      hwLabel.textContent = 'Pi Offline';
+      offOverlay.style.display = 'flex';
+      dpadBtns.forEach(b => b.disabled = true);
+      toggle.disabled = true;
+      stopMovement(); // Safety: stop everything if hardware lost
+    }
+  }
+
+  function pollStatus() {
+    fetch('/api/camera/servo/status')
+      .then(r => r.json())
+      .then(data => {
+        autoEnabled = data.auto_enabled;
+        piOnline    = data.pi_online;
+        updateUI();
+      })
+      .catch(() => {
+        piOnline = false;
+        updateUI();
+      });
+  }
+
+  // Handle Engagement (Click to Focus)
+  panel.addEventListener('mousedown', (e) => {
+    if (!piOnline) return;
+    isEngaged = true;
+    updateUI();
+    e.stopPropagation(); // Prevent document-level disengage
+  });
+
+  document.addEventListener('mousedown', () => {
+    if (isEngaged) {
+      isEngaged = false;
+      updateUI();
+    }
+  });
+
+  // --- Movement Logic ---
+
+  function sendMove(axis, dir) {
+    if (!piOnline) return;
+    
+    fetch('/api/camera/servo/move', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ axis: axis, dir: dir })
+    })
+    .then(r => r.json())
+    .then(data => {
+      if (data.auto_enabled === false && autoEnabled !== false) {
+        autoEnabled = false;
+        updateUI();
+      }
+    })
+    .catch(() => {});
+  }
+
+  function startMovement(axis, dir) {
+    if (!piOnline) return;
+    if (moveInterval) return; // Already moving
+    
+    activeAxis = axis;
+    activeDir = dir;
+    
+    // Immediate first move
+    sendMove(axis, dir);
+    
+    // Continuous repeat every 180ms
+    moveInterval = setInterval(() => {
+      sendMove(activeAxis, activeDir);
+    }, 180);
+  }
+
+  function stopMovement() {
+    if (moveInterval) {
+      clearInterval(moveInterval);
+      moveInterval = null;
+    }
+    activeAxis = null;
+    activeDir = null;
+  }
+
+  // --- Input Handlers ---
+
+  // Mouse/Touch Events
+  dpadBtns.forEach(btn => {
+    const axis = btn.dataset.axis;
+    const dir  = btn.dataset.dir;
+
+    if (dir === 'center') {
+      btn.addEventListener('click', () => sendMove(axis, dir));
+    } else {
+      // Hold-to-move events
+      btn.addEventListener('mousedown', (e) => {
+        e.preventDefault();
+        startMovement(axis, dir);
+      });
+      btn.addEventListener('touchstart', (e) => {
+        e.preventDefault();
+        startMovement(axis, dir);
+      }, { passive: false });
+    }
+  });
+
+  // Global Stop
+  window.addEventListener('mouseup', stopMovement);
+  window.addEventListener('touchend', stopMovement);
+  panel.addEventListener('mouseleave', stopMovement);
+
+  // Keyboard Support (Arrows only, Engaged only)
+  document.addEventListener('keydown', function(e) {
+    if (!piOnline || !isEngaged) return;
+    if (['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement.tagName)) return;
+    if (e.repeat) return; // Let our interval handle the repetition
+
+    let axis, dir;
+    switch(e.key) {
+      case 'ArrowUp':    axis = 'tilt'; dir = 'up';    break;
+      case 'ArrowDown':  axis = 'tilt'; dir = 'down';  break;
+      case 'ArrowLeft':  axis = 'pan';  dir = 'left';  break;
+      case 'ArrowRight': axis = 'pan';  dir = 'right'; break;
+      case 'c': 
+      case 'C':          sendMove('both', 'center'); return; // Center is one-shot
+      default: return; // Ignore other keys (like WASD)
+    }
+
+    if (axis && dir) {
+      e.preventDefault();
+      startMovement(axis, dir);
+    }
+  });
+
+  document.addEventListener('keyup', function(e) {
+    const keys = ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'];
+    if (keys.includes(e.key)) {
+      stopMovement();
+    }
+  });
+
+  // Toggle handler
+  toggle.addEventListener('change', function() {
+    const want = this.checked;
+    fetch('/api/camera/servo/toggle', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ enabled: want })
+    })
+    .then(r => r.json())
+    .then(data => {
+      autoEnabled = data.auto_enabled;
+      updateUI();
+    })
+    .catch(() => {});
+  });
+
+  // Initial poll then every 5 seconds
+  pollStatus();
+  setInterval(pollStatus, 5000);
+})();
+</script>

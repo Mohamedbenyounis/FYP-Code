@@ -71,10 +71,10 @@ def move_servo():
             
     elif axis == 'tilt':
         if direction == 'up':
-            tilt_angle = max(MIN_ANGLE, tilt_angle - STEP_SIZE)
+            tilt_angle = min(MAX_ANGLE, tilt_angle + STEP_SIZE)
             moved = True
         elif direction == 'down':
-            tilt_angle = min(MAX_ANGLE, tilt_angle + STEP_SIZE)
+            tilt_angle = max(MIN_ANGLE, tilt_angle - STEP_SIZE)
             moved = True
 
     if moved:

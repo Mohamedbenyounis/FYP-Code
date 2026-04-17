@@ -125,7 +125,7 @@ def _run_processing_loop_for_n_frames(
         try:
             _processing_loop(
                 frame_q, pipeline, event_manager, event_repo,
-                snapshot, clip, clip_lock, alert_svc, log,
+                snapshot, clip, clip_lock, alert_svc, None, None, log,
             )
         except Exception as e:
             exception_caught.append(e)
@@ -232,7 +232,7 @@ class TestProcessingLoopFaultTolerance:
             try:
                 _processing_loop(
                     frame_q, pipeline, event_manager, event_repo,
-                    snapshot, clip, clip_lock, alert_svc, log,
+                    snapshot, clip, clip_lock, alert_svc, None, None, log,
                 )
             except Exception as e:
                 exception_caught.append(e)

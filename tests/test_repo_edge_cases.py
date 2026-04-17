@@ -21,7 +21,7 @@ from werkzeug.security import generate_password_hash
 from app.core.models import Event
 from app.db.migrations import init_db
 from app.db.repo import (
-    AdminRepository,
+    UserRepository,
     SQLiteAlertRepository,
     SQLiteEventRepository,
     SQLitePersonRepository,
@@ -38,7 +38,7 @@ def _make_repos(tmp_path):
     """Create fresh repositories for testing."""
     db_path = tmp_path / "test.sqlite"
     conn = init_db(db_path)
-    return conn, AdminRepository(conn), SQLiteEventRepository(conn), SQLiteAlertRepository(conn)
+    return conn, UserRepository(conn), SQLiteEventRepository(conn), SQLiteAlertRepository(conn)
 
 
 def _seed_admin_user(admin_repo, username="testuser", role="operator"):
@@ -47,10 +47,10 @@ def _seed_admin_user(admin_repo, username="testuser", role="operator"):
 
 
 # ===================================================================
-# AdminRepository edge cases
+# UserRepository edge cases
 # ===================================================================
 
-class TestAdminRepoEdgeCases:
+class TestUserRepoEdgeCases:
 
     def test_role_persists_correctly(self, tmp_path):
         """User created with 'operator' role retains that role on lookup."""

@@ -6,7 +6,9 @@ schema, migrates the events table if the old Iteration 2 schema is detected,
 and enables WAL + foreign-key pragmas.
 
 Iteration 5: Adds ``_bootstrap_default_admin`` which seeds one admin user
-the first time the database is opened (when ``admin_users`` is empty).
+the first time the database is opened (when ``users`` is empty).
+
+FYP Finalisation: Renames ``admin_users`` to ``users`` for semantic clarity.
 """
 from __future__ import annotations
 
@@ -87,17 +89,20 @@ def init_db(db_path: Path) -> sqlite3.Connection:
     conn.executescript(schema_sql)
     conn.commit()
 
+    # Migrate: rename admin_users to users (FYP Finalisation) ----------
+    _migrate_rename_admin_users(conn, log)
+
     # Migrate: add track_key column to events (Iteration 11b) ----------
     _migrate_events_add_track_key(conn, log)
 
     # Migrate: add status to alerts (Iteration 12) --------------------
     _migrate_alerts_add_status(conn, log)
 
-    # Migrate: add role to admin_users (Iteration 13 - RBAC) ----------
-    _migrate_admin_users_add_role(conn, log)
+    # Migrate: add role to users (Iteration 13 - RBAC) -----------------
+    _migrate_users_add_role(conn, log)
 
-    # Migrate: add email to admin_users (Iteration 14) ----------------
-    _migrate_admin_users_add_email(conn, log)
+    # Migrate: add email to users (Iteration 14) ----------------------
+    _migrate_users_add_email(conn, log)
 
     # Bootstrap default admin if none exists (Iteration 5) ------------
     _bootstrap_default_admin(conn, log)
@@ -145,25 +150,50 @@ def _migrate_alerts_add_status(conn: sqlite3.Connection, log) -> None:
         conn.commit()
 
 
-def _migrate_admin_users_add_role(conn: sqlite3.Connection, log) -> None:
-    """Add role column to admin_users table for RBAC."""
-    cursor = conn.execute("PRAGMA table_info(admin_users);")
-    columns = {row[1] for row in cursor.fetchall()}
-
-    if "role" not in columns:
-        log.info("Migrating admin_users table: adding role column")
-        conn.execute("ALTER TABLE admin_users ADD COLUMN role TEXT NOT NULL DEFAULT 'admin';")
+def _migrate_rename_admin_users(conn: sqlite3.Connection, log) -> None:
+    """Rename admin_users table to users if it exists (FYP Finalisation)."""
+    cursor = conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='admin_users'"
+    )
+    if cursor.fetchone():
+        log.info("Renaming table admin_users -> users")
+        # Check if users already exists (unlikely given schema order but safe)
+        cursor = conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='users'"
+        )
+        if cursor.fetchone():
+            # If both exist, we might be in a messy state. 
+            # If users is empty, we can drop it and rename.
+            cursor = conn.execute("SELECT COUNT(*) FROM users")
+            if cursor.fetchone()[0] == 0:
+                conn.execute("DROP TABLE users;")
+                conn.execute("ALTER TABLE admin_users RENAME TO users;")
+            else:
+                log.warning("Both admin_users AND users tables exist and are non-empty. Manual fix required.")
+        else:
+            conn.execute("ALTER TABLE admin_users RENAME TO users;")
         conn.commit()
 
 
-def _migrate_admin_users_add_email(conn: sqlite3.Connection, log) -> None:
-    """Add email column to admin_users table for notifications."""
-    cursor = conn.execute("PRAGMA table_info(admin_users);")
+def _migrate_users_add_role(conn: sqlite3.Connection, log) -> None:
+    """Add role column to users table for RBAC."""
+    cursor = conn.execute("PRAGMA table_info(users);")
+    columns = {row[1] for row in cursor.fetchall()}
+
+    if "role" not in columns:
+        log.info("Migrating users table: adding role column")
+        conn.execute("ALTER TABLE users ADD COLUMN role TEXT NOT NULL DEFAULT 'admin';")
+        conn.commit()
+
+
+def _migrate_users_add_email(conn: sqlite3.Connection, log) -> None:
+    """Add email column to users table for notifications."""
+    cursor = conn.execute("PRAGMA table_info(users);")
     columns = {row[1] for row in cursor.fetchall()}
 
     if "email" not in columns:
-        log.info("Migrating admin_users table: adding email column")
-        conn.execute("ALTER TABLE admin_users ADD COLUMN email TEXT;")
+        log.info("Migrating users table: adding email column")
+        conn.execute("ALTER TABLE users ADD COLUMN email TEXT;")
         conn.commit()
 
 
@@ -184,7 +214,7 @@ def _bootstrap_default_admin(conn: sqlite3.Connection, log) -> None:
     # Lazy import to avoid heavy dependency for non-dashboard code paths
     from werkzeug.security import generate_password_hash
 
-    cursor = conn.execute("SELECT COUNT(*) FROM admin_users")
+    cursor = conn.execute("SELECT COUNT(*) FROM users")
     count = cursor.fetchone()[0]
     if count > 0:
         return
@@ -194,7 +224,7 @@ def _bootstrap_default_admin(conn: sqlite3.Connection, log) -> None:
 
     if not default_username or not default_password:
         log.warning(
-            "SECURITY: admin_users is empty but bootstrap credentials are not "
+            "SECURITY: users table is empty but bootstrap credentials are not "
             "configured. Set SV_BOOTSTRAP_ADMIN_USERNAME and "
             "SV_BOOTSTRAP_ADMIN_PASSWORD to create the first admin."
         )
@@ -204,7 +234,7 @@ def _bootstrap_default_admin(conn: sqlite3.Connection, log) -> None:
     now_iso = datetime.now(timezone.utc).isoformat()
 
     conn.execute(
-        "INSERT INTO admin_users (username, password_hash, role, created_at) "
+        "INSERT INTO users (username, password_hash, role, created_at) "
         "VALUES (?, ?, ?, ?)",
         (default_username, password_hash, 'admin', now_iso),
     )

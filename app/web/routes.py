@@ -13,6 +13,7 @@ from flask import (
 	abort,
 	current_app,
 	flash,
+	jsonify,
 	redirect,
 	render_template,
 	request,
@@ -24,7 +25,8 @@ from werkzeug.security import check_password_hash
 
 from app import config
 from app.db.repo import (
-	AdminRepository,
+	UserRepository,
+	SettingsRepository,
 	SQLiteEventRepository,
 	SQLitePersonRepository,
 	SQLiteAlertRepository,
@@ -36,12 +38,12 @@ from app.web.auth import login_required, role_required, login_user, logout_user
 web_bp = Blueprint("web", __name__)
 
 
-def _repos() -> tuple[SQLitePersonRepository, SQLiteEventRepository, AdminRepository, SQLiteAlertRepository]:
+def _repos() -> tuple[SQLitePersonRepository, SQLiteEventRepository, UserRepository, SQLiteAlertRepository]:
 	conn = current_app.config["DB_CONN"]
 	return (
 		SQLitePersonRepository(conn),
 		SQLiteEventRepository(conn),
-		AdminRepository(conn),
+		UserRepository(conn),
 		SQLiteAlertRepository(conn),
 	)
 
@@ -206,6 +208,7 @@ def dashboard():
 		recognition_match_threshold=config.RECOGNITION_MATCH_THRESHOLD,
 		authorisation_threshold=config.AUTHORISATION_THRESHOLD,
 		live_view_enabled=config.LIVE_VIEW_ENABLED,
+		servo_ui_enabled=config.SERVO_UI_ENABLED,
 	)
 
 
@@ -560,3 +563,94 @@ def update_user_email(user_id: int):
 		flash("User not found.", "error")
 		
 	return redirect(url_for("web.user_management"))
+
+
+# =====================================================================
+# Servo Control API  (Servo Finalisation)
+# =====================================================================
+
+@web_bp.route("/api/camera/servo/status")
+@login_required
+def servo_status():
+	"""Return current servo mode and Pi reachability."""
+	conn = current_app.config["DB_CONN"]
+	settings = SettingsRepository(conn)
+
+	auto_val = settings.get_setting("servo_auto_enabled")
+	auto_enabled = auto_val == "true" if auto_val is not None else False
+
+	pi_online = False
+	if config.SERVO_ENABLED:
+		try:
+			import requests as req
+			base = f"http://{config.SERVO_PI_IP}:{config.SERVO_PI_PORT}"
+			resp = req.get(f"{base}/status", timeout=1.0)
+			pi_online = resp.status_code == 200
+		except Exception:
+			pi_online = False
+
+	return jsonify({"auto_enabled": auto_enabled, "pi_online": pi_online})
+
+
+@web_bp.route("/api/camera/servo/toggle", methods=["POST"])
+@login_required
+def servo_toggle():
+	"""Toggle automatic servo tracking on or off."""
+	data = request.get_json(silent=True) or {}
+	enabled = data.get("enabled", False)
+
+	conn = current_app.config["DB_CONN"]
+	settings = SettingsRepository(conn)
+	settings.set_setting("servo_auto_enabled", "true" if enabled else "false")
+
+	return jsonify({"auto_enabled": enabled})
+
+
+@web_bp.route("/api/camera/servo/move", methods=["POST"])
+@login_required
+def servo_move():
+	"""Send a manual move command to the Pi and disable auto mode."""
+	data = request.get_json(silent=True) or {}
+	axis = data.get("axis", "")
+	direction = data.get("dir", "")
+
+	# Validate inputs
+	valid_moves = {
+		"pan": ["left", "right"],
+		"tilt": ["up", "down"],
+		"both": ["center"],
+	}
+	if axis not in valid_moves or direction not in valid_moves[axis]:
+		return jsonify({"success": False, "error": "Invalid axis or direction"}), 400
+
+	# Force auto mode OFF on any manual move
+	conn = current_app.config["DB_CONN"]
+	settings = SettingsRepository(conn)
+	settings.set_setting("servo_auto_enabled", "false")
+
+	if not config.SERVO_ENABLED:
+		return jsonify({"success": False, "error": "Servo not enabled in config"}), 503
+
+	# Proxy movement to Pi
+	try:
+		import requests as req
+		base = f"http://{config.SERVO_PI_IP}:{config.SERVO_PI_PORT}"
+		
+		# If center, use configured home values if they are provided, 
+		# otherwise let Pi use its own defaults.
+		params = {"axis": axis, "dir": direction}
+		if direction == "center":
+			params["pan"] = config.SERVO_HOME_PAN
+			params["tilt"] = config.SERVO_HOME_TILT
+
+		resp = req.get(
+			f"{base}/move",
+			params=params,
+			timeout=1.5,
+		)
+		if resp.status_code == 200:
+			return jsonify({"success": True, "auto_enabled": False})
+		else:
+			return jsonify({"success": False, "error": f"Pi returned {resp.status_code}"}), 502
+	except Exception as e:
+		return jsonify({"success": False, "error": f"Pi unreachable: {str(e)}"}), 503

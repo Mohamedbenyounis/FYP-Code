@@ -17,7 +17,7 @@ from datetime import datetime, timezone
 from werkzeug.security import generate_password_hash
 
 from app.core.models import Event
-from app.db.repo import AdminRepository, SQLiteEventRepository, SQLiteAlertRepository
+from app.db.repo import UserRepository, SQLiteEventRepository, SQLiteAlertRepository
 
 
 # -------------------------------------------------------------------
@@ -31,7 +31,7 @@ def _login_as(client, username, password):
 
 def _seed_operator(db):
     """Create an operator user for RBAC testing."""
-    repo = AdminRepository(db)
+    repo = UserRepository(db)
     repo.add_user("operator_rbac", generate_password_hash("oppass"), "operator")
 
 
@@ -199,18 +199,18 @@ class TestAdminAccess:
             follow_redirects=True,
         )
         assert res.status_code == 200
-        admin_repo = AdminRepository(db)
-        assert admin_repo.get_by_username("newadmin") is not None
+        user_repo = UserRepository(db)
+        assert user_repo.get_by_username("newadmin") is not None
 
     def test_admin_delete_user(self, client, db):
         _login_as(client, "admin", "test-admin-pass")
         # Create a user to delete
-        admin_repo = AdminRepository(db)
-        admin_repo.add_user("todelete", generate_password_hash("p"), "operator")
-        user = admin_repo.get_by_username("todelete")
+        user_repo = UserRepository(db)
+        user_repo.add_user("todelete", generate_password_hash("p"), "operator")
+        user = user_repo.get_by_username("todelete")
         res = client.post(f"/delete_user/{user['id']}", follow_redirects=True)
         assert res.status_code == 200
-        assert admin_repo.get_by_username("todelete") is None
+        assert user_repo.get_by_username("todelete") is None
 
     def test_admin_acknowledge_alert(self, client, db):
         _login_as(client, "admin", "test-admin-pass")

@@ -52,6 +52,10 @@
     </section>
     {% endif %}
 
+    {% if servo_ui_enabled %}
+      {% include 'components/_servo_controls.html' %}
+    {% endif %}
+
     <section style="margin-top: 16px;">
       <h3 style="color: var(--status-danger);">Priority Alerts</h3>
       <div class="alert-list">

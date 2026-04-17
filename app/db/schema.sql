@@ -50,9 +50,9 @@ CREATE INDEX IF NOT EXISTS idx_events_status     ON events(status);
 CREATE INDEX IF NOT EXISTS idx_events_created_at ON events(created_at);
 
 -- =====================================================================
--- Dashboard admin users  (Iteration 5)
+-- System users (Iteration 5 / FYP Finalisation)
 -- =====================================================================
-CREATE TABLE IF NOT EXISTS admin_users (
+CREATE TABLE IF NOT EXISTS users (
     id            INTEGER PRIMARY KEY AUTOINCREMENT,
     username      TEXT    NOT NULL UNIQUE,
     password_hash TEXT    NOT NULL,            -- werkzeug.security hash
@@ -74,3 +74,11 @@ CREATE TABLE IF NOT EXISTS alerts (
 );
 
 CREATE INDEX IF NOT EXISTS idx_alerts_created_at ON alerts(created_at);
+
+-- =====================================================================
+-- System settings  (key-value store for cross-process state)
+-- =====================================================================
+CREATE TABLE IF NOT EXISTS system_settings (
+    key   TEXT PRIMARY KEY,
+    value TEXT
+);

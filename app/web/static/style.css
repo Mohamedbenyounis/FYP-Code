@@ -408,3 +408,129 @@ button:hover, .btn:hover { opacity: 0.9; }
   font-size: 1rem;
   margin-top: 8px;
 }
+
+/* =====================================================================
+   Servo Control Panel
+   ===================================================================== */
+
+.servo-panel {
+  position: relative;
+  margin-top: 16px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  padding: 16px;
+}
+
+.servo-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+.servo-header h3 { margin: 0; font-size: 1rem; }
+.servo-status-badges { display: flex; gap: 8px; }
+
+/* Toggle switch */
+.servo-toggle-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 0;
+  margin-bottom: 12px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+.servo-toggle-label { color: var(--text-secondary); font-size: 0.9rem; }
+
+.toggle-switch {
+  position: relative;
+  display: inline-block;
+  width: 44px;
+  height: 24px;
+}
+.toggle-switch input { opacity: 0; width: 0; height: 0; }
+.toggle-slider {
+  position: absolute; cursor: pointer;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: var(--bg-hover);
+  border-radius: 24px;
+  transition: 0.3s;
+}
+.toggle-slider::before {
+  content: "";
+  position: absolute;
+  height: 18px; width: 18px;
+  left: 3px; bottom: 3px;
+  background: var(--text-secondary);
+  border-radius: 50%;
+  transition: 0.3s;
+}
+.toggle-switch input:checked + .toggle-slider { background: var(--status-ok); }
+.toggle-switch input:checked + .toggle-slider::before {
+  transform: translateX(20px);
+  background: #fff;
+}
+
+/* D-pad */
+.dpad-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 0;
+}
+.dpad-row { display: flex; gap: 4px; }
+.dpad-middle { align-items: center; }
+
+.dpad-btn {
+  width: 48px; height: 48px;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--bg-hover);
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  color: var(--text-primary);
+  font-size: 1.1rem;
+  cursor: pointer;
+  transition: background 0.15s, transform 0.1s;
+  padding: 0;
+}
+.dpad-btn:hover:not(:disabled) {
+  background: var(--accent);
+  color: #fff;
+  transform: scale(1.08);
+}
+.dpad-btn:active:not(:disabled) { transform: scale(0.95); }
+.dpad-btn:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+.dpad-center {
+  background: var(--bg-card);
+  border-color: var(--status-warn);
+  font-size: 0.7rem;
+}
+.dpad-center:hover:not(:disabled) { background: var(--status-warn); }
+
+/* Offline overlay */
+.servo-offline-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(18, 20, 23, 0.85);
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--status-danger);
+  font-weight: 600;
+  font-size: 1rem;
+  z-index: 5;
+}
+.servo-panel.engaged {
+  border-color: var(--accent);
+  box-shadow: 0 0 12px rgba(59, 130, 246, 0.2);
+  transition: all 0.3s ease;
+}
+
+.servo-panel.engaged .servo-header h3 {
+  color: var(--accent);
+}
